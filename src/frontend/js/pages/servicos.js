@@ -27,7 +27,7 @@ window.PaginaServicos = (function () {
     categorias = await API.get('/api/categorias').catch(() => []);
     preencherCategorias(container.querySelector('#sv-categoria'));
 
-    container.querySelector('#sv-busca').addEventListener('input', debounce((e) => { filtros.busca = e.target.value; listar(); }, 250));
+    container.querySelector('#sv-busca').addEventListener('input', UI.debounce((e) => { filtros.busca = e.target.value; listar(); }, 250));
     container.querySelector('#sv-categoria').addEventListener('change', (e) => { filtros.categoria_id = e.target.value; listar(); });
     container.querySelector('#sv-categorias').addEventListener('click', abrirCategorias);
     container.querySelector('#sv-novo').addEventListener('click', () => abrirForm());
@@ -163,7 +163,6 @@ window.PaginaServicos = (function () {
     });
   }
 
-  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return { titulo: 'Serviços', render };
 })();

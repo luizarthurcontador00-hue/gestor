@@ -78,7 +78,7 @@ window.PaginaOrdens = (function () {
         <button class="btn" id="ord-nova">+ ${ehOS() ? 'Nova OS' : 'Novo orçamento'}</button>
       </div>
       <div class="card"><div id="ord-lista">Carregando…</div></div>`;
-    alvo.querySelector('#ord-busca').addEventListener('input', debounce((e) => { f.busca = e.target.value; listar(); }, 250));
+    alvo.querySelector('#ord-busca').addEventListener('input', UI.debounce((e) => { f.busca = e.target.value; listar(); }, 250));
     alvo.querySelector('#ord-status').addEventListener('change', (e) => { f.status = e.target.value; listar(); });
     alvo.querySelector('#ord-nova').addEventListener('click', () => abrirForm());
     await listar();
@@ -393,7 +393,7 @@ window.PaginaOrdens = (function () {
       </div>
       <div id="pat-resumo" class="grid grid--cards mb-16"></div>
       <div id="pat-kanban"><div class="card">Carregando…</div></div>`;
-    alvo.querySelector('#pat-busca').addEventListener('input', debounce(() => carregarPatio(), 250));
+    alvo.querySelector('#pat-busca').addEventListener('input', UI.debounce(() => carregarPatio(), 250));
     alvo.querySelector('#pat-novo').addEventListener('click', () => abrirForm());
     await carregarPatio();
   }
@@ -473,7 +473,6 @@ window.PaginaOrdens = (function () {
     </div>`;
   }
 
-  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return { titulo: 'Ordens & Orçamentos', render };
 })();

@@ -8,8 +8,7 @@
 
 const { getDb } = require('../db/connection');
 const { AppError } = require('../utils/errors');
-
-const hoje = () => new Date().toISOString().slice(0, 10);
+const { hoje } = require('../utils/datas');
 
 function listar({ incluir_concluidos } = {}) {
   const db = getDb();

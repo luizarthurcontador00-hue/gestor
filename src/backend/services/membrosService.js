@@ -10,6 +10,7 @@
 
 const { getDb } = require('../db/connection');
 const { AppError } = require('../utils/errors');
+const { hoje: hojeISO } = require('../utils/datas');
 
 const CARGOS = [
   'presidente', 'vice_presidente', 'tesoureiro', 'vice_tesoureiro',
@@ -31,7 +32,7 @@ const ROTULO_CARGO = {
 };
 
 function listar({ incluir_inativos } = {}) {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeISO();
   return getDb().prepare(`
     SELECT *,
       CASE WHEN mandato_fim IS NOT NULL AND mandato_fim < @hoje THEN 1 ELSE 0 END AS mandato_vencido
@@ -108,7 +109,7 @@ function excluir(id) {
  */
 function assinante() {
   const db = getDb();
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeISO();
   const marcado = db.prepare(`
     SELECT * FROM membros_instituto
     WHERE ativo = 1 AND assina_documentos = 1

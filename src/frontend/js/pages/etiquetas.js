@@ -43,7 +43,7 @@ window.PaginaEtiquetas = (function () {
         </div>
       </div>`;
 
-    container.querySelector('#et-busca').addEventListener('input', debounce(listar, 250));
+    container.querySelector('#et-busca').addEventListener('input', UI.debounce(listar, 250));
     container.querySelector('#et-categoria').addEventListener('change', listar);
     container.querySelector('#et-todos').addEventListener('change', (e) => marcarTodosVisiveis(e.target.checked));
     container.querySelector('#et-imprimir').addEventListener('click', () => imprimirSelecionados());
@@ -147,7 +147,7 @@ window.PaginaEtiquetas = (function () {
       <div class="etq">
         <div class="etq-nome">${escaparTxt(p.nome)}</div>
         ${window.Barcode.ean13SVG(p.codigo_barras, { largura: Math.round(lay.largura * pxPorMm), altura: 34 })}
-        <div class="etq-preco">${dinTxt(p.preco_venda)}</div>
+        <div class="etq-preco">${UI.moeda(p.preco_venda)}</div>
       </div>`).join('');
 
     const html = `<html><head><meta charset="utf-8"><title>Etiquetas</title>
@@ -172,8 +172,6 @@ window.PaginaEtiquetas = (function () {
   }
 
   function escaparTxt(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function dinTxt(v) { return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
-  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return { titulo: 'Etiquetas', render, imprimirIds };
 })();

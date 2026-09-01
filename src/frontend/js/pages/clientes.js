@@ -23,7 +23,7 @@ window.PaginaClientes = (function () {
         <button class="btn" id="cl-novo">+ Novo ${rotulo()}</button>
       </div>
       <div class="card"><div id="cl-lista">Carregando…</div></div>`;
-    container.querySelector('#cl-busca').addEventListener('input', debounce(listar, 250));
+    container.querySelector('#cl-busca').addEventListener('input', UI.debounce(listar, 250));
     container.querySelector('#cl-novo').addEventListener('click', () => formCliente());
     await listar();
   }
@@ -258,7 +258,6 @@ window.PaginaClientes = (function () {
     });
   }
 
-  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return { titulo: 'Clientes', render };
 })();

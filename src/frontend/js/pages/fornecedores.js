@@ -13,7 +13,7 @@ window.PaginaFornecedores = (function () {
         <button class="btn" id="fn-novo">+ Novo fornecedor</button>
       </div>
       <div class="card"><div id="fn-lista">Carregando…</div></div>`;
-    container.querySelector('#fn-busca').addEventListener('input', debounce(listar, 250));
+    container.querySelector('#fn-busca').addEventListener('input', UI.debounce(listar, 250));
     container.querySelector('#fn-novo').addEventListener('click', () => formFornecedor());
     await listar();
   }
@@ -79,7 +79,6 @@ window.PaginaFornecedores = (function () {
     });
   }
 
-  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return { titulo: 'Fornecedores', render };
 })();

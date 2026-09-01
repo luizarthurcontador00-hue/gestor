@@ -102,7 +102,7 @@ window.PaginaPDV = (function () {
 
     const input = container.querySelector('#pdv-input');
     input.addEventListener('keydown', onInputKey);
-    input.addEventListener('input', debounce(buscar, 200));
+    input.addEventListener('input', UI.debounce(buscar, 200));
     container.querySelector('#pdv-add').addEventListener('click', () => adicionarDaBusca());
     container.querySelector('#pdv-desconto').addEventListener('input', atualizarTotais);
     container.querySelector('#pdv-finalizar').addEventListener('click', finalizar);
@@ -507,7 +507,6 @@ window.PaginaPDV = (function () {
 
   // ----------------------- utils -----------------------
   function arred(n) { return Number(Number(n || 0).toFixed(2)); }
-  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return { titulo: 'PDV', render };
 })();

@@ -51,7 +51,7 @@ window.PaginaCatalogo = (function () {
         </div>
       </div>`;
 
-    container.querySelector('#cat-busca').addEventListener('input', debounce(listar, 250));
+    container.querySelector('#cat-busca').addEventListener('input', UI.debounce(listar, 250));
     container.querySelector('#cat-categoria').addEventListener('change', listar);
     container.querySelector('#cat-servicos').addEventListener('change', (e) => { incluirServicos = e.target.checked; listar(); });
     container.querySelector('#cat-todos').addEventListener('change', (e) => marcarTodosVisiveis(e.target.checked));
@@ -124,7 +124,7 @@ window.PaginaCatalogo = (function () {
       <div class="cat-item">
         <div class="cat-item-foto">${p.foto_path ? `<img src="/uploads/produtos/${encodeURIComponent(p.foto_path)}">` : '<span class="cat-item-sem-foto">📦</span>'}</div>
         <div class="cat-item-nome">${escaparTxt(p.nome)}</div>
-        <div class="cat-item-preco">${dinTxt(p.preco_venda)}</div>
+        <div class="cat-item-preco">${UI.moeda(p.preco_venda)}</div>
       </div>`).join('');
 
     const rodapeHTML = mostrarRodape && (config.loja_telefone || config.nome_loja)
@@ -159,8 +159,6 @@ window.PaginaCatalogo = (function () {
   }
 
   function escaparTxt(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function dinTxt(v) { return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
-  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return { titulo: 'Catálogo', render };
 })();

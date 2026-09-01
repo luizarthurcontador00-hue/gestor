@@ -39,6 +39,12 @@ const UI = (function () {
     return Number(valor || 0).toLocaleString('pt-BR');
   }
 
+  /** Atrasa a chamada de fn ate `ms` depois da ultima invocacao (busca com digitacao). */
+  function debounce(fn, ms) {
+    let t;
+    return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+  }
+
   function dataHora(iso) {
     if (!iso) return '';
     const s = String(iso);
@@ -154,5 +160,5 @@ const UI = (function () {
     }
   }
 
-  return { toast, sucesso, erro, alerta, confirmar, moeda, numero, dataHora, escapar, imprimir, baixarPDF, mascararDocumento, ligarMascaraDocumento };
+  return { toast, sucesso, erro, alerta, confirmar, moeda, numero, dataHora, escapar, imprimir, baixarPDF, mascararDocumento, ligarMascaraDocumento, debounce };
 })();

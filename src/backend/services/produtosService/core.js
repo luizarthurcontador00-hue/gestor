@@ -1,12 +1,18 @@
 'use strict';
 
+/**
+ * CRUD de produto, estoque (ajuste/conferencia/movimentacoes) e o helper de
+ * data/hora usado nos rotulos de lote. E o modulo "central": fotos.js,
+ * codigoBarras.js, kits.js e lote.js dependem de `obter`/`criar` daqui.
+ */
+
 const fs = require('fs');
 const path = require('path');
-const { getDb } = require('../db/connection');
-const { AppError } = require('../utils/errors');
-const { registrarMovimentacao } = require('./estoqueService');
-const { precoPorMarkup, markupEfetivo, arred } = require('./precificacaoService');
-const paths = require('../paths');
+const { getDb } = require('../../db/connection');
+const { AppError } = require('../../utils/errors');
+const { registrarMovimentacao } = require('../estoqueService');
+const { precoPorMarkup, markupEfetivo } = require('../precificacaoService');
+const paths = require('../../paths');
 
 const SELECT_BASE = `
   SELECT p.*, c.nome AS categoria_nome, f.nome AS fornecedor_nome
@@ -51,79 +57,9 @@ function obter(id) {
   const db = getDb();
   const prod = db.prepare(SELECT_BASE + ' WHERE p.id = ?').get(id);
   if (!prod) throw new AppError('Produto nao encontrado.', 404);
-  prod.fotos = listarFotos(id);
+  // eslint-disable-next-line global-require
+  prod.fotos = require('./fotos').listarFotos(id);
   return prod;
-}
-
-// ------------------------------ Fotos (galeria) ------------------------------
-
-function listarFotos(produtoId) {
-  const db = getDb();
-  return db.prepare(
-    'SELECT id, arquivo, ordem, principal FROM produtos_fotos WHERE produto_id = ? ORDER BY principal DESC, ordem, id'
-  ).all(produtoId);
-}
-
-/** Sincroniza produtos.foto_path com a foto principal atual (ou a primeira). */
-function sincronizarFotoPrincipal(db, produtoId) {
-  const principal = db.prepare(
-    'SELECT arquivo FROM produtos_fotos WHERE produto_id = ? ORDER BY principal DESC, ordem, id LIMIT 1'
-  ).get(produtoId);
-  db.prepare("UPDATE produtos SET foto_path = ?, atualizado_em = datetime('now','localtime') WHERE id = ?")
-    .run(principal ? principal.arquivo : null, produtoId);
-}
-
-/** Adiciona uma ou mais fotos (nomes de arquivo ja salvos em disco). */
-function adicionarFotos(produtoId, arquivos) {
-  const db = getDb();
-  obter(produtoId); // garante existencia (404 amigavel)
-  const lista = (Array.isArray(arquivos) ? arquivos : []).filter(Boolean);
-  if (!lista.length) throw new AppError('Nenhuma foto enviada.');
-  const tx = db.transaction(() => {
-    const jaTem = db.prepare('SELECT COUNT(*) c FROM produtos_fotos WHERE produto_id = ?').get(produtoId).c;
-    let ordem = db.prepare('SELECT COALESCE(MAX(ordem),-1)+1 o FROM produtos_fotos WHERE produto_id = ?').get(produtoId).o;
-    const ins = db.prepare('INSERT INTO produtos_fotos (produto_id, arquivo, ordem, principal) VALUES (?, ?, ?, ?)');
-    lista.forEach((arq, i) => {
-      // A primeira foto de um produto sem nenhuma vira a principal.
-      const principal = (jaTem === 0 && i === 0) ? 1 : 0;
-      ins.run(produtoId, arq, ordem++, principal);
-    });
-    sincronizarFotoPrincipal(db, produtoId);
-  });
-  tx();
-  return listarFotos(produtoId);
-}
-
-function definirFotoPrincipal(produtoId, fotoId) {
-  const db = getDb();
-  const foto = db.prepare('SELECT * FROM produtos_fotos WHERE id = ? AND produto_id = ?').get(fotoId, produtoId);
-  if (!foto) throw new AppError('Foto nao encontrada.', 404);
-  const tx = db.transaction(() => {
-    db.prepare('UPDATE produtos_fotos SET principal = 0 WHERE produto_id = ?').run(produtoId);
-    db.prepare('UPDATE produtos_fotos SET principal = 1 WHERE id = ?').run(fotoId);
-    sincronizarFotoPrincipal(db, produtoId);
-  });
-  tx();
-  return listarFotos(produtoId);
-}
-
-function removerFoto(produtoId, fotoId) {
-  const db = getDb();
-  const foto = db.prepare('SELECT * FROM produtos_fotos WHERE id = ? AND produto_id = ?').get(fotoId, produtoId);
-  if (!foto) throw new AppError('Foto nao encontrada.', 404);
-  const tx = db.transaction(() => {
-    db.prepare('DELETE FROM produtos_fotos WHERE id = ?').run(fotoId);
-    // Se removeu a principal, promove a proxima.
-    const restam = db.prepare('SELECT COUNT(*) c, COALESCE(SUM(principal),0) p FROM produtos_fotos WHERE produto_id = ?').get(produtoId);
-    if (restam.c > 0 && restam.p === 0) {
-      const proxima = db.prepare('SELECT id FROM produtos_fotos WHERE produto_id = ? ORDER BY ordem, id LIMIT 1').get(produtoId);
-      if (proxima) db.prepare('UPDATE produtos_fotos SET principal = 1 WHERE id = ?').run(proxima.id);
-    }
-    sincronizarFotoPrincipal(db, produtoId);
-  });
-  tx();
-  removerFotoArquivo(foto.arquivo);
-  return listarFotos(produtoId);
 }
 
 function movimentacoes(id, limite = 100) {
@@ -222,8 +158,13 @@ function criar(dados) {
 
   const id = tx();
   // Foto enviada junto no cadastro (fluxo legado): registra na galeria.
+  // Require tardio para evitar ciclo com fotos.js, que por sua vez importa
+  // `obter`/`removerFotoArquivo` daqui no topo do arquivo.
   if (dados.foto_path) {
-    try { adicionarFotos(id, [dados.foto_path]); } catch (_) { /* nao bloqueia o cadastro */ }
+    try {
+      // eslint-disable-next-line global-require
+      require('./fotos').adicionarFotos(id, [dados.foto_path]);
+    } catch (_) { /* nao bloqueia o cadastro */ }
   }
   return obter(id);
 }
@@ -446,232 +387,6 @@ function removerFotoArquivo(nomeArquivo) {
   }
 }
 
-// ----------------------- Codigo de barras (etiquetas) -----------------------
-
-/** Digito verificador padrao EAN-13 a partir dos 12 primeiros digitos. */
-function ean13DigitoVerificador(doze) {
-  let soma = 0;
-  for (let i = 0; i < 12; i++) {
-    soma += Number(doze[i]) * (i % 2 === 0 ? 1 : 3);
-  }
-  const resto = soma % 10;
-  return resto === 0 ? 0 : 10 - resto;
-}
-
-/**
- * Gera um codigo EAN-13 interno e unico para o produto, usando o prefixo
- * 20-29 (faixa reservada pelo GS1 para uso interno/circulacao restrita,
- * convencao comum em varejo para itens sem codigo de fabrica).
- */
-function gerarCodigoInterno(id) {
-  const doze = '20' + String(id).padStart(10, '0');
-  return doze + ean13DigitoVerificador(doze);
-}
-
-/**
- * Garante que o produto tenha um codigo de barras EAN-13 valido (13 digitos)
- * para impressao de etiqueta. Se ja tiver um codigo de 13 digitos, usa-o sem
- * alterar. Caso contrario, gera um codigo interno e SALVA no cadastro, para
- * que a etiqueta impressa sempre corresponda ao que o PDV reconhece.
- */
-function garantirCodigoBarras(id) {
-  const db = getDb();
-  const p = obter(id);
-  const digitos = (p.codigo_barras || '').replace(/\D/g, '');
-  if (digitos.length === 13) return digitos;
-  const novo = gerarCodigoInterno(id);
-  db.prepare("UPDATE produtos SET codigo_barras = ?, atualizado_em = datetime('now','localtime') WHERE id = ?")
-    .run(novo, id);
-  return novo;
-}
-
-/** Prepara os dados de uma lista de produtos para impressao de etiquetas. */
-function prepararEtiquetas(ids) {
-  if (!Array.isArray(ids) || !ids.length) {
-    throw new AppError('Selecione ao menos um produto para gerar etiquetas.');
-  }
-  return ids.map((id) => {
-    const codigo_barras = garantirCodigoBarras(id);
-    const p = obter(id);
-    return { id: p.id, nome: p.nome, preco_venda: p.preco_venda, codigo_barras };
-  });
-}
-
-// ----------------------------- Kits / composicao -----------------------------
-
-/** Lista os itens que compoem um kit. */
-function obterComposicao(kitId) {
-  const db = getDb();
-  obter(kitId); // garante existencia
-  return db.prepare(`
-    SELECT pc.id, pc.produto_componente_id, pc.quantidade,
-           p.nome, p.custo, p.unidade
-    FROM produtos_composicao pc
-    JOIN produtos p ON p.id = pc.produto_componente_id
-    WHERE pc.produto_kit_id = ?
-    ORDER BY p.nome COLLATE NOCASE
-  `).all(kitId);
-}
-
-/**
- * Substitui a lista de componentes de um kit e recalcula o custo do kit como
- * a soma (custo do componente x quantidade), mantendo o custo sempre coerente.
- */
-function salvarComposicao(kitId, itens) {
-  const db = getDb();
-  obter(kitId);
-  const lista = Array.isArray(itens) ? itens : [];
-  if (!lista.length) throw new AppError('Adicione ao menos um produto para compor o kit.');
-
-  const tx = db.transaction(() => {
-    db.prepare('DELETE FROM produtos_composicao WHERE produto_kit_id = ?').run(kitId);
-    const ins = db.prepare(
-      'INSERT INTO produtos_composicao (produto_kit_id, produto_componente_id, quantidade) VALUES (?, ?, ?)'
-    );
-    let custoTotal = 0;
-    for (const item of lista) {
-      const componenteId = Number(item.produto_componente_id);
-      if (componenteId === Number(kitId)) {
-        throw new AppError('Um kit nao pode conter a si mesmo como componente.');
-      }
-      const qtd = Number(item.quantidade);
-      if (!(qtd > 0)) throw new AppError('A quantidade de cada item do kit deve ser maior que zero.');
-      const componente = db.prepare('SELECT custo FROM produtos WHERE id = ?').get(componenteId);
-      if (!componente) throw new AppError('Um dos produtos selecionados para o kit nao foi encontrado.');
-      ins.run(kitId, componenteId, qtd);
-      custoTotal += Number(componente.custo) * qtd;
-    }
-    db.prepare("UPDATE produtos SET eh_kit = 1, custo = ?, atualizado_em = datetime('now','localtime') WHERE id = ?")
-      .run(arred(custoTotal), kitId);
-  });
-  tx();
-  return obterComposicao(kitId);
-}
-
-// ----------------------------- Cadastro em lote -----------------------------
-
-/** Le a config que liga a geracao automatica de codigo de barras na importacao. */
-function codigoAutoLigado(db) {
-  const row = db.prepare("SELECT valor FROM config WHERE chave = 'gerar_codigo_auto'").get();
-  // Padrao ligado quando a chave nao existe.
-  return !row || row.valor == null ? true : String(row.valor) === '1';
-}
-
-function acharOuCriarCategoria(db, nome) {
-  const limpo = (nome || '').toString().trim();
-  if (!limpo) return null;
-  const existente = db.prepare('SELECT id FROM categorias WHERE nome = ? COLLATE NOCASE').get(limpo);
-  if (existente) return existente.id;
-  return db.prepare('INSERT INTO categorias (nome) VALUES (?)').run(limpo).lastInsertRowid;
-}
-
-function acharOuCriarFornecedor(db, nome) {
-  const limpo = (nome || '').toString().trim();
-  if (!limpo) return null;
-  const existente = db.prepare('SELECT id FROM fornecedores WHERE nome = ? COLLATE NOCASE').get(limpo);
-  if (existente) return existente.id;
-  return db.prepare('INSERT INTO fornecedores (nome) VALUES (?)').run(limpo).lastInsertRowid;
-}
-
-/**
- * Confere se ja existe produto ativo com o mesmo codigo de barras ou o mesmo
- * nome (sem diferenciar maiusculas/espacos) — evita duplicar cadastro de
- * quem ja esta na base, o erro mais comum de digitar um lote grande as
- * pressas ou reimportar a mesma planilha por engano.
- */
-function acharDuplicado(db, { nome, codigo_barras }) {
-  const codigo = String(codigo_barras || '').trim();
-  if (codigo) {
-    const porCodigo = db.prepare('SELECT id, nome FROM produtos WHERE ativo = 1 AND codigo_barras = ?').get(codigo);
-    if (porCodigo) return { campo: 'codigo_barras', produto: porCodigo };
-  }
-  const nomeNorm = String(nome || '').trim().toLowerCase();
-  if (nomeNorm) {
-    const porNome = db.prepare("SELECT id, nome FROM produtos WHERE ativo = 1 AND LOWER(TRIM(nome)) = ?").get(nomeNorm);
-    if (porNome) return { campo: 'nome', produto: porNome };
-  }
-  return null;
-}
-
-/**
- * Cadastra varios produtos de uma vez (grade de cadastro em lote ou
- * importacao de planilha). Cada linha e processada de forma independente:
- * um erro numa linha nao impede as demais de serem salvas. Categoria e
- * fornecedor podem vir por nome (texto): sao localizados ou criados na hora.
- */
-function criarLote(linhas) {
-  if (!Array.isArray(linhas) || !linhas.length) {
-    throw new AppError('Nenhum produto para cadastrar.');
-  }
-  const db = getDb();
-  const resultados = linhas.map((linha, idx) => {
-    try {
-      if (!linha.nome || !String(linha.nome).trim()) {
-        throw new AppError('Informe o nome do produto.');
-      }
-      const duplicado = acharDuplicado(db, { nome: linha.nome, codigo_barras: linha.codigo_barras });
-      if (duplicado) {
-        const comoQue = duplicado.campo === 'codigo_barras' ? 'com esse código de barras' : 'com esse nome';
-        throw new AppError(`Já existe um produto cadastrado ${comoQue}: "${duplicado.produto.nome}" (#${duplicado.produto.id}).`);
-      }
-      // Importacao: se o usuario nao digitou um preco na grade, o produto fica
-      // sem preco (0) e sera precificado na aba Precificacao.
-      const dados = { ...linha, _semPrecoAuto: true };
-      if (linha.categoria) dados.categoria_id = acharOuCriarCategoria(db, linha.categoria);
-      if (linha.fornecedor) dados.fornecedor_id = acharOuCriarFornecedor(db, linha.fornecedor);
-      let produto = criar(dados);
-      // Gera codigo de barras interno automaticamente (se ligado nas Config).
-      if (codigoAutoLigado(db) && !(produto.codigo_barras && String(produto.codigo_barras).replace(/\D/g, '').length === 13)) {
-        garantirCodigoBarras(produto.id);
-        produto = obter(produto.id);
-      }
-      return { linha: idx + 1, sucesso: true, produto };
-    } catch (e) {
-      return { linha: idx + 1, sucesso: false, nome: linha.nome || null, erro: (e && e.message) || 'Erro desconhecido.' };
-    }
-  });
-  // Envia os produtos criados para a planilha de Precificacao, agrupados por
-  // um lote com data/hora, para o usuario definir os precos por markup divisor.
-  const criados = resultados.filter((r) => r.sucesso).map((r) => ({
-    produto_id: r.produto.id,
-    referencia: r.produto.codigo_barras,
-    descricao: r.produto.nome,
-    quantidade: 1,
-    valor_pedido: Number(r.produto.custo || 0),
-  }));
-  let lotePrecificacao = null;
-  let loteConferencia = null;
-  if (criados.length) {
-    // eslint-disable-next-line global-require
-    const prec = require('./precAvancadaService');
-    // eslint-disable-next-line global-require
-    const conferencia = require('./conferenciaService');
-    const rotulo = `Cadastro em lote ${dataHoraRotulo()}`;
-    prec.importarProdutos(criados, rotulo);
-    // A conferencia usa a quantidade que o usuario digitou na grade (o que
-    // deveria chegar fisicamente), diferente da precificacao que so importa
-    // o valor unitario.
-    const paraConferir = resultados.filter((r) => r.sucesso).map((r) => ({
-      produto_id: r.produto.id,
-      referencia: r.produto.codigo_barras,
-      descricao: r.produto.nome,
-      quantidade: Number(r.produto.estoque_atual || 0),
-    }));
-    conferencia.importarProdutos(paraConferir, rotulo);
-    lotePrecificacao = rotulo;
-    loteConferencia = rotulo;
-  }
-
-  return {
-    total: resultados.length,
-    criados: resultados.filter((r) => r.sucesso).length,
-    erros: resultados.filter((r) => !r.sucesso).length,
-    resultados,
-    lote_precificacao: lotePrecificacao,
-    lote_conferencia: loteConferencia,
-  };
-}
-
 /** Rotulo de lote no formato "DD/MM/AAAA HH:MM". */
 function dataHoraRotulo() {
   const d = new Date();
@@ -680,24 +395,6 @@ function dataHoraRotulo() {
 }
 
 module.exports = {
-  listar,
-  obter,
-  movimentacoes,
-  criar,
-  atualizar,
-  ajustarEstoque,
-  conferenciaEstoque,
-  excluir,
-  prepararEtiquetas,
-  obterComposicao,
-  salvarComposicao,
-  criarLote,
-  excluirLote,
-  editarLote,
-  listarFotos,
-  adicionarFotos,
-  definirFotoPrincipal,
-  removerFoto,
-  garantirCodigoBarras,
-  codigoAutoLigado,
+  listar, obter, movimentacoes, normalizar, criar, atualizar, ajustarEstoque,
+  conferenciaEstoque, excluir, excluirLote, editarLote, removerFotoArquivo, dataHoraRotulo,
 };

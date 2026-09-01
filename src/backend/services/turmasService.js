@@ -13,6 +13,8 @@
 
 const { getDb } = require('../db/connection');
 const { AppError } = require('../utils/errors');
+const { arred } = require('./precificacaoService');
+const { hoje: hojeISO } = require('../utils/datas');
 const instrumentos = require('./instrumentosService');
 
 const STATUS_TURMA = ['planejada', 'aberta', 'encerrada', 'cancelada'];
@@ -734,7 +736,7 @@ function limparEncontrosForaDoHorario(turmaId) {
   const db = getDb();
   const horarios = db.prepare('SELECT * FROM turmas_horarios WHERE turma_id = ?').all(turmaId);
   const turma = db.prepare('SELECT periodo_inicio, periodo_fim FROM turmas WHERE id = ?').get(turmaId);
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeISO();
 
   const futuros = db.prepare(`
     SELECT a.id, a.data, a.hora_inicio FROM agendamentos a
@@ -846,7 +848,7 @@ function progressoTurma(id) {
   if (!turma.curso_carga_horaria) {
     return { carga_horaria: null, horas_dadas: 0, horas_restantes: null, percentual: null };
   }
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeISO();
   const encontros = db.prepare(`
     SELECT hora_inicio, hora_fim FROM agendamentos
     WHERE turma_id = ? AND data <= ? AND suspensa = 0
@@ -860,9 +862,9 @@ function progressoTurma(id) {
   const percentual = Math.min(100, Math.round((horasDadas / cargaHoraria) * 100));
   return {
     carga_horaria: cargaHoraria,
-    horas_dadas: Math.round(horasDadas * 100) / 100,
+    horas_dadas: arred(horasDadas),
     horas_abonadas: Number(turma.horas_abonadas || 0),
-    horas_restantes: Math.max(0, Math.round((cargaHoraria - horasDadas) * 100) / 100),
+    horas_restantes: Math.max(0, arred(cargaHoraria - horasDadas)),
     percentual,
   };
 }
@@ -929,7 +931,7 @@ function suspenderPeriodo({ de, ate, motivo }) {
   if (dataAte < dataDe) throw new AppError('A data final não pode ser antes da inicial.');
 
   const motivoFinal = (motivo || '').trim() || 'Férias';
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeISO();
   const diasNecessarios = Math.max(90, Math.ceil((new Date(`${dataAte}T12:00:00`) - new Date(`${hoje}T12:00:00`)) / 864e5) + 7);
 
   const turmasAtivas = db.prepare("SELECT id, nome FROM turmas WHERE status IN ('aberta','planejada')").all();

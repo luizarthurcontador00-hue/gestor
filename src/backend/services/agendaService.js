@@ -5,10 +5,10 @@ const path = require('path');
 const { getDb } = require('../db/connection');
 const { AppError } = require('../utils/errors');
 const { arred } = require('./precificacaoService');
+const { hoje } = require('../utils/datas');
 const paths = require('../paths');
 
 const STATUS = ['agendado', 'confirmado', 'atendido', 'cancelado', 'faltou'];
-const hoje = () => new Date().toISOString().slice(0, 10);
 
 // ----------------------------- Profissionais -----------------------------
 
