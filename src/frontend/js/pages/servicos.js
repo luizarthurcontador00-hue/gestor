@@ -104,6 +104,12 @@ window.PaginaServicos = (function () {
           <div class="campo col-2"><label>Preço de venda (R$)</label><input name="preco_venda" type="number" step="0.01" min="0" value="${s.preco_venda != null ? s.preco_venda : ''}" />
             <span class="dica">Deixe em branco para calcular pelo markup. Você também pode precificar na aba Precificação (atividade Serviços).</span></div>
           <div class="campo col-2"><label>Descrição</label><textarea name="descricao">${UI.escapar(s.descricao || '')}</textarea></div>
+          <div class="campo col-2" style="border-top:1px solid var(--borda);padding-top:16px">
+            <label style="font-weight:600">🧾 Dados fiscais <span class="dica">(para emitir NFS-e — opcional até precisar emitir nota)</span></label>
+          </div>
+          <div class="campo col-2"><label>Código de serviço (LC 116)</label>
+            <input name="codigo_servico_nacional" value="${UI.escapar(s.codigo_servico_nacional || '')}" placeholder="Ex.: 060101" maxlength="6" />
+            <span class="dica">6 dígitos: item + subitem da lista de serviços (LC 116/2003) + desdobro nacional. Consulte o Anexo B da NFS-e Nacional ou seu contador.</span></div>
         </form>`,
       textoConfirmar: 'Salvar',
       aoAbrir: (el) => { preencherCategorias(el.querySelector('#sv-fp-cat'), s.categoria_id); },

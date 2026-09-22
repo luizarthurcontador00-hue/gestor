@@ -115,6 +115,8 @@ function normalizar(dados) {
     cfop: dados.cfop ? String(dados.cfop).replace(/\D/g, '') || null : null,
     cst_csosn: dados.cst_csosn ? String(dados.cst_csosn).trim() || null : null,
     origem_mercadoria: dados.origem_mercadoria != null && dados.origem_mercadoria !== '' ? Number(dados.origem_mercadoria) : 0,
+    // Codigo de tributacao nacional do ISSQN (LC 116/2003 + desdobro, 6 digitos) — so' faz sentido pra servico.
+    codigo_servico_nacional: dados.codigo_servico_nacional ? String(dados.codigo_servico_nacional).replace(/\D/g, '') || null : null,
   };
 }
 
@@ -133,12 +135,12 @@ function criar(dados) {
           (nome, descricao, codigo_barras, categoria_id, fornecedor_id, unidade,
            custo, markup, preco_venda, estoque_atual, estoque_minimo, foto_path,
            eh_kit, eh_servico, duracao_min, grupo_variacao, variacao,
-           ncm, cfop, cst_csosn, origem_mercadoria)
+           ncm, cfop, cst_csosn, origem_mercadoria, codigo_servico_nacional)
          VALUES
           (@nome, @descricao, @codigo_barras, @categoria_id, @fornecedor_id, @unidade,
            @custo, @markup, @preco_venda, 0, @estoque_minimo, @foto_path,
            @eh_kit, @eh_servico, @duracao_min, @grupo_variacao, @variacao,
-           @ncm, @cfop, @cst_csosn, @origem_mercadoria)`
+           @ncm, @cfop, @cst_csosn, @origem_mercadoria, @codigo_servico_nacional)`
       )
       .run({ ...d, foto_path: dados.foto_path || null });
 
@@ -191,6 +193,7 @@ function atualizar(id, dados) {
        eh_kit=@eh_kit, eh_servico=@eh_servico, duracao_min=@duracao_min,
        grupo_variacao=@grupo_variacao, variacao=@variacao,
        ncm=@ncm, cfop=@cfop, cst_csosn=@cst_csosn, origem_mercadoria=@origem_mercadoria,
+       codigo_servico_nacional=@codigo_servico_nacional,
        atualizado_em=datetime('now','localtime')
      WHERE id=@id`
   ).run({ ...d, foto_path, id });

@@ -345,6 +345,103 @@ window.PaginaConfiguracoes = (function () {
       } catch (e) { badge.textContent = '—'; }
     }
     atualizarStatusFiscal();
+    renderNFSe(alvo, cfg);
+  }
+
+  // ------------------------------ NFS-e (Portal Nacional) ------------------------------
+  function renderNFSe(container, cfg) {
+    const card = document.createElement('div');
+    card.className = 'card mt-16';
+    card.style.maxWidth = '640px';
+    card.innerHTML = `
+      <div class="flex flex--between" style="align-items:center">
+        <h3 style="margin:0">🏛️ NFS-e — Portal Nacional</h3>
+        <span id="nfse-status" class="badge badge--muted">verificando…</span>
+      </div>
+      <p class="dica">Emissão de NFS-e (nota de serviço) <strong>direto pela Receita</strong>, sem gateway — o sistema guarda seu certificado digital A1 e assina a nota sozinho. Teste sempre em "Produção Restrita" antes de trocar para produção de verdade.</p>
+      <div id="nfse-cert-info"></div>
+      <form id="form-nfse-cert" class="form-grid mt-16">
+        <div class="campo"><label>Certificado digital (.pfx / .p12)</label><input type="file" name="certificado" accept=".pfx,.p12" /></div>
+        <div class="campo"><label>Senha do certificado</label><input type="password" name="senha" placeholder="Deixe em branco para manter a atual" /></div>
+        <div class="campo col-2"><button class="btn btn--secundario" type="submit">Salvar certificado</button></div>
+      </form>
+      <form id="form-nfse" class="form-grid mt-16">
+        <div class="campo"><label>Ambiente</label>
+          <select name="fiscal_nfse_ambiente">
+            <option value="homologacao" ${(cfg.fiscal_nfse_ambiente || 'homologacao') === 'homologacao' ? 'selected' : ''}>Produção Restrita (testes, não vale fiscalmente)</option>
+            <option value="producao" ${cfg.fiscal_nfse_ambiente === 'producao' ? 'selected' : ''}>Produção (notas reais)</option>
+          </select></div>
+        <div class="campo"><label>Código do município (IBGE)</label>
+          <input name="fiscal_nfse_municipio_ibge" value="${UI.escapar(cfg.fiscal_nfse_municipio_ibge || '')}" maxlength="7" placeholder="Ex.: 5212501" />
+          <span class="dica">Município onde o CNPJ está cadastrado como prestador.</span></div>
+        <div class="campo"><label>Situação no Simples Nacional</label>
+          <select name="fiscal_nfse_op_simples_nacional">
+            <option value="1" ${cfg.fiscal_nfse_op_simples_nacional === '1' ? 'selected' : ''}>Não optante</option>
+            <option value="2" ${cfg.fiscal_nfse_op_simples_nacional === '2' ? 'selected' : ''}>Optante — MEI</option>
+            <option value="3" ${(cfg.fiscal_nfse_op_simples_nacional || '3') === '3' ? 'selected' : ''}>Optante — ME/EPP</option>
+          </select></div>
+        <div class="campo"><label>Regime especial de tributação</label>
+          <select name="fiscal_nfse_regime_especial_trib">
+            <option value="0" ${(cfg.fiscal_nfse_regime_especial_trib || '0') === '0' ? 'selected' : ''}>Nenhum</option>
+            <option value="1" ${cfg.fiscal_nfse_regime_especial_trib === '1' ? 'selected' : ''}>Ato Cooperado (Cooperativa)</option>
+            <option value="2" ${cfg.fiscal_nfse_regime_especial_trib === '2' ? 'selected' : ''}>Estimativa</option>
+            <option value="3" ${cfg.fiscal_nfse_regime_especial_trib === '3' ? 'selected' : ''}>Microempresa Municipal</option>
+            <option value="4" ${cfg.fiscal_nfse_regime_especial_trib === '4' ? 'selected' : ''}>Notário ou Registrador</option>
+            <option value="5" ${cfg.fiscal_nfse_regime_especial_trib === '5' ? 'selected' : ''}>Profissional Autônomo</option>
+            <option value="6" ${cfg.fiscal_nfse_regime_especial_trib === '6' ? 'selected' : ''}>Sociedade de Profissionais</option>
+            <option value="9" ${cfg.fiscal_nfse_regime_especial_trib === '9' ? 'selected' : ''}>Outros</option>
+          </select></div>
+        <div class="campo col-2"><button class="btn" type="submit">Salvar dados do prestador</button></div>
+      </form>`;
+    container.appendChild(card);
+
+    card.querySelector('#form-nfse-cert').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const form = ev.target;
+      const arquivo = form.certificado.files[0];
+      const senha = form.senha.value;
+      if (!arquivo && !senha) { UI.erro('Selecione o certificado e informe a senha.'); return; }
+      if (!arquivo) { UI.erro('Selecione o arquivo do certificado.'); return; }
+      if (!senha) { UI.erro('Informe a senha do certificado.'); return; }
+      const fd = new FormData();
+      fd.append('certificado', arquivo);
+      fd.append('senha', senha);
+      try {
+        await API.post('/api/fiscal/nfse/certificado', fd);
+        UI.sucesso('Certificado salvo.');
+        form.reset();
+        atualizarStatusNfse();
+      } catch (e) { UI.erro(e.message); }
+    });
+
+    card.querySelector('#form-nfse').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const body = Object.fromEntries(new FormData(ev.target).entries());
+      try {
+        await API.put('/api/config', body);
+        Object.assign(cfg, body);
+        UI.sucesso('Dados do prestador (NFS-e) salvos.');
+        atualizarStatusNfse();
+      } catch (e) { UI.erro(e.message); }
+    });
+
+    async function atualizarStatusNfse() {
+      const badge = card.querySelector('#nfse-status');
+      const info = card.querySelector('#nfse-cert-info');
+      if (!badge) return;
+      try {
+        const r = await API.get('/api/fiscal/nfse/status');
+        badge.textContent = r.configurado ? '✅ Configurado' : '⚠️ Não configurado';
+        badge.className = 'badge ' + (r.configurado ? 'badge--ok' : 'badge--muted');
+        if (r.certificado) {
+          const exp = r.certificado.expirado ? '<span class="badge badge--erro">expirado</span>' : '<span class="badge badge--ok">válido</span>';
+          info.innerHTML = `<p class="dica">Certificado: <strong>${UI.escapar(r.certificado.titular || '—')}</strong> — válido até ${UI.escapar(r.certificado.valido_ate)} ${exp}</p>`;
+        } else {
+          info.innerHTML = '';
+        }
+      } catch (e) { badge.textContent = '—'; }
+    }
+    atualizarStatusNfse();
   }
 
   // ------------------------------ Aparência ------------------------------

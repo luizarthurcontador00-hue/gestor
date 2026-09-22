@@ -99,6 +99,17 @@ window.PaginaClientes = (function () {
         </div>
         ` : ''}
         <div class="campo col-2"><label>Endereço</label><input name="endereco" value="${UI.escapar(c.endereco || '')}" /></div>
+        <div class="campo col-2" style="border-top:1px solid var(--borda);padding-top:14px">
+          <label style="font-weight:600">🧾 Endereço estruturado <span class="dica">(só necessário para emitir NFS-e para este ${rotulo()} — opcional)</span></label>
+        </div>
+        <div class="campo"><label>CEP</label><input name="endereco_cep" value="${UI.escapar(c.endereco_cep || '')}" /></div>
+        <div class="campo"><label>Código do município (IBGE)</label>
+          <input name="endereco_municipio_ibge" value="${UI.escapar(c.endereco_municipio_ibge || '')}" maxlength="7" placeholder="Ex.: 5212501" /></div>
+        <div class="campo col-2"><label>Logradouro</label><input name="endereco_logradouro" value="${UI.escapar(c.endereco_logradouro || '')}" /></div>
+        <div class="campo"><label>Número</label><input name="endereco_numero" value="${UI.escapar(c.endereco_numero || '')}" /></div>
+        <div class="campo"><label>Complemento</label><input name="endereco_complemento" value="${UI.escapar(c.endereco_complemento || '')}" /></div>
+        <div class="campo"><label>Bairro</label><input name="endereco_bairro" value="${UI.escapar(c.endereco_bairro || '')}" /></div>
+        <div class="campo"><label>UF</label><input name="endereco_uf" value="${UI.escapar(c.endereco_uf || '')}" maxlength="2" style="text-transform:uppercase" /></div>
         <div class="campo col-2"><label>Observação</label><textarea name="observacao">${UI.escapar(c.observacao || '')}</textarea></div>
       </form>`,
       textoConfirmar: 'Salvar',

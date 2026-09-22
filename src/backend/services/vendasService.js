@@ -244,7 +244,11 @@ function obterVenda(id) {
   const db = getDb();
   const venda = db.prepare('SELECT * FROM vendas WHERE id = ?').get(id);
   if (!venda) throw new AppError('Venda nao encontrada.', 404);
-  venda.itens = db.prepare('SELECT * FROM vendas_itens WHERE venda_id = ? ORDER BY id').all(id);
+  venda.itens = db.prepare(`
+    SELECT vi.*, p.eh_servico
+    FROM vendas_itens vi LEFT JOIN produtos p ON p.id = vi.produto_id
+    WHERE vi.venda_id = ? ORDER BY vi.id
+  `).all(id);
   venda.pagamentos = db.prepare('SELECT * FROM vendas_pagamentos WHERE venda_id = ?').all(id);
   return venda;
 }

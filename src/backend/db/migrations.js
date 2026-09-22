@@ -1761,6 +1761,37 @@ const migrations = [
       db.exec(`ALTER TABLE precificacao_produtos ADD COLUMN preco_venda_manual REAL;`);
     },
   },
+  {
+    version: 49,
+    name: 'nfse-portal-nacional',
+    up(db) {
+      db.exec(`
+        -- Endereco estruturado do cliente (tomador do servico). O campo
+        -- "endereco" de texto livre continua existindo — estes sao usados
+        -- so' na hora de montar a DPS (Declaracao de Prestacao de Servico) e
+        -- sao opcionais: o schema nacional permite emitir sem endereco do
+        -- tomador (nem sempre o prestador tem esse dado completo em maos).
+        ALTER TABLE clientes ADD COLUMN endereco_cep TEXT;
+        ALTER TABLE clientes ADD COLUMN endereco_logradouro TEXT;
+        ALTER TABLE clientes ADD COLUMN endereco_numero TEXT;
+        ALTER TABLE clientes ADD COLUMN endereco_complemento TEXT;
+        ALTER TABLE clientes ADD COLUMN endereco_bairro TEXT;
+        ALTER TABLE clientes ADD COLUMN endereco_municipio_ibge TEXT; -- codigo IBGE (7 digitos)
+        ALTER TABLE clientes ADD COLUMN endereco_uf TEXT;
+
+        -- Codigo de tributacao nacional do ISSQN (LC 116/2003 + desdobro
+        -- nacional, 6 digitos) — equivalente ao NCM/CFOP, mas para servico.
+        ALTER TABLE produtos ADD COLUMN codigo_servico_nacional TEXT;
+
+        -- Campos especificos da NFS-e (Portal Nacional) na tabela de notas
+        -- ja existente: id_dps e o identificador de 45 posicoes gerado na
+        -- emissao (formacao definida no Anexo I do layout nacional);
+        -- codigo_verificacao vem na resposta, usado no DANFSe.
+        ALTER TABLE notas_fiscais ADD COLUMN id_dps TEXT;
+        ALTER TABLE notas_fiscais ADD COLUMN codigo_verificacao TEXT;
+      `);
+    },
+  },
 ];
 
 /**

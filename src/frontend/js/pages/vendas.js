@@ -93,8 +93,16 @@ window.PaginaVendas = (function () {
         API.get('/api/devolucoes?venda_id=' + id).catch(() => []),
       ]);
     } catch (e) { UI.erro(e.message); return; }
-    const notaAtual = notas.find((n) => n.status === 'autorizada' || n.status === 'processando') || notas[0];
     const temDisponivel = v.itens.some((i) => arred(Number(i.quantidade) - Number(i.quantidade_devolvida || 0)) > 0.0001);
+    // Produto (NFC-e) e servico (NFS-e) sao documentos fiscais diferentes —
+    // uma venda pode ter os dois ao mesmo tempo, entao cada um tem seu
+    // proprio cartao, independente.
+    const temProduto = v.itens.some((i) => !i.eh_servico);
+    const temServico = v.itens.some((i) => i.eh_servico);
+    const notaNfce = notas.filter((n) => n.tipo !== 'nfse').find((n) => n.status === 'autorizada' || n.status === 'processando')
+      || notas.find((n) => n.tipo !== 'nfse');
+    const notaNfse = notas.filter((n) => n.tipo === 'nfse').find((n) => n.status === 'autorizada' || n.status === 'processando')
+      || notas.find((n) => n.tipo === 'nfse');
     const corpo = `
       <div class="flex flex--between mb-16">
         <div><strong>Venda #${v.id}</strong><div class="dica">${UI.dataHora(v.data)}</div></div>
@@ -115,8 +123,10 @@ window.PaginaVendas = (function () {
       ${v.observacao ? `<p class="muted mt-16">${UI.escapar(v.observacao)}</p>` : ''}
       ${devolucoes.length ? `<h3 class="mt-16">↩️ Devoluções / trocas</h3>
       ${devolucoes.map((d) => `<div class="flex flex--between"><span class="dica">${UI.dataHora(d.data)}${d.motivo ? ' — ' + UI.escapar(d.motivo) : ''}</span><span>${UI.moeda(d.valor_devolvido)}</span></div>`).join('')}` : ''}
-      ${v.status === 'concluida' ? `<h3 class="mt-16">🧾 Nota fiscal</h3>
-      <div id="vd-fiscal">${situacaoFiscalHTML(notaAtual)}</div>` : ''}`;
+      ${v.status === 'concluida' && temProduto ? `<h3 class="mt-16">🧾 NFC-e (produto)</h3>
+      <div id="vd-fiscal-nfce">${situacaoFiscalHTML(notaNfce, 'nfce')}</div>` : ''}
+      ${v.status === 'concluida' && temServico ? `<h3 class="mt-16">🧾 NFS-e (serviço)</h3>
+      <div id="vd-fiscal-nfse">${situacaoFiscalHTML(notaNfse, 'nfse')}</div>` : ''}`;
 
     Modal.abrir({
       titulo: 'Detalhes da venda', tamanho: 'modal--grande', corpoHTML: corpo, mostrarConfirmar: false,
@@ -276,43 +286,49 @@ window.PaginaVendas = (function () {
     });
   }
 
-  function situacaoFiscalHTML(nota) {
-    if (!nota) return '<div class="flex flex--between" style="align-items:center"><span class="dica">Nenhuma nota emitida para esta venda.</span><button class="btn btn--secundario" id="vd-emitir">Emitir NFC-e</button></div>';
-    if (nota.status === 'processando') return `<div class="flex flex--between" style="align-items:center"><span class="badge badge--alerta">Processando…</span><button class="btn btn--secundario" id="vd-consultar" data-nota="${nota.id}">Atualizar status</button></div>`;
+  // tipo: 'nfce' (produto, via gateway) ou 'nfse' (serviço, Portal Nacional).
+  function situacaoFiscalHTML(nota, tipo) {
+    const rotulo = tipo === 'nfse' ? 'NFS-e' : 'NFC-e';
+    if (!nota) return `<div class="flex flex--between" style="align-items:center"><span class="dica">Nenhuma nota emitida para esta venda.</span><button class="btn btn--secundario" data-emitir="${tipo}">Emitir ${rotulo}</button></div>`;
+    if (nota.status === 'processando') return `<div class="flex flex--between" style="align-items:center"><span class="badge badge--alerta">Processando…</span><button class="btn btn--secundario" data-consultar="${tipo}" data-nota="${nota.id}">Atualizar status</button></div>`;
     if (nota.status === 'autorizada') return `<div class="flex flex--between" style="align-items:center">
       <span class="badge badge--ok">✅ Autorizada${nota.numero ? ' — nº ' + UI.escapar(nota.numero) : ''}</span>
-      ${nota.danfe_url ? `<a class="btn btn--secundario" href="${UI.escapar(nota.danfe_url)}" target="_blank" rel="noopener">Ver DANFE</a>` : ''}
+      ${nota.danfe_url ? `<a class="btn btn--secundario" href="${UI.escapar(nota.danfe_url)}" target="_blank" rel="noopener">${tipo === 'nfse' ? 'Ver DANFSe' : 'Ver DANFE'}</a>` : ''}
     </div>`;
     return `<div>
       <span class="badge badge--erro">Erro na emissão</span>
       ${nota.mensagem_erro ? `<p class="dica mt-16">${UI.escapar(nota.mensagem_erro)}</p>` : ''}
-      <button class="btn btn--secundario mt-16" id="vd-emitir">Tentar novamente</button>
+      <button class="btn btn--secundario mt-16" data-emitir="${tipo}">Tentar novamente</button>
     </div>`;
   }
 
   function ligarAcoesFiscais(el, vendaId) {
-    const btnEmitir = el.querySelector('#vd-emitir');
-    if (btnEmitir) btnEmitir.addEventListener('click', async () => {
+    el.querySelectorAll('[data-emitir]').forEach((btnEmitir) => btnEmitir.addEventListener('click', async () => {
+      const tipo = btnEmitir.dataset.emitir;
+      const alvoId = tipo === 'nfse' ? 'vd-fiscal-nfse' : 'vd-fiscal-nfce';
       btnEmitir.disabled = true; btnEmitir.textContent = 'Emitindo…';
       try {
-        await API.post(`/api/fiscal/vendas/${vendaId}/emitir-nfce`, {});
-        UI.sucesso('Nota fiscal enviada para processamento.');
+        await API.post(`/api/fiscal/vendas/${vendaId}/emitir-${tipo}`, {});
+        UI.sucesso(`${tipo === 'nfse' ? 'NFS-e' : 'Nota fiscal'} enviada para processamento.`);
       } catch (e) {
         UI.erro(e.message);
       } finally {
         const notasAtual = await API.get(`/api/fiscal/vendas/${vendaId}/notas`).catch(() => []);
-        el.querySelector('#vd-fiscal').innerHTML = situacaoFiscalHTML(notasAtual[0]);
+        const nota = notasAtual.filter((n) => (tipo === 'nfse' ? n.tipo === 'nfse' : n.tipo !== 'nfse'))[0];
+        el.querySelector('#' + alvoId).innerHTML = situacaoFiscalHTML(nota, tipo);
         ligarAcoesFiscais(el, vendaId);
       }
-    });
-    const btnConsultar = el.querySelector('#vd-consultar');
-    if (btnConsultar) btnConsultar.addEventListener('click', async () => {
+    }));
+    el.querySelectorAll('[data-consultar]').forEach((btnConsultar) => btnConsultar.addEventListener('click', async () => {
+      const tipo = btnConsultar.dataset.consultar;
+      const alvoId = tipo === 'nfse' ? 'vd-fiscal-nfse' : 'vd-fiscal-nfce';
       try {
-        const nota = await API.post(`/api/fiscal/notas/${btnConsultar.dataset.nota}/consultar`, {});
-        el.querySelector('#vd-fiscal').innerHTML = situacaoFiscalHTML(nota);
+        const caminho = tipo === 'nfse' ? 'consultar-nfse' : 'consultar';
+        const nota = await API.post(`/api/fiscal/notas/${btnConsultar.dataset.nota}/${caminho}`, {});
+        el.querySelector('#' + alvoId).innerHTML = situacaoFiscalHTML(nota, tipo);
         ligarAcoesFiscais(el, vendaId);
       } catch (e) { UI.erro(e.message); }
-    });
+    }));
   }
 
   return { titulo: 'Vendas', render };

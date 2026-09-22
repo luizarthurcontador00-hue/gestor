@@ -45,9 +45,13 @@ const whatsappMidiaDir = path.join(uploadsDir, 'whatsapp');
 const whatsappAuthDir = path.join(baseDir, 'whatsapp-auth');
 const backupsDir = path.join(baseDir, 'backups');
 const dbPath = path.join(baseDir, 'vendas.db');
+// Certificado digital (.pfx) usado pra assinar a DPS da NFS-e. Fica fora de
+// uploadsDir de proposito — nao e um "upload" comum, e um segredo do
+// contribuinte; nunca e servido por rota estatica nenhuma.
+const certificadosDir = path.join(baseDir, 'certificados');
 
 function ensureDirs() {
-  [baseDir, uploadsDir, produtosImgDir, pessoasImgDir, notasDir, whatsappMidiaDir, whatsappAuthDir, backupsDir].forEach((dir) => {
+  [baseDir, uploadsDir, produtosImgDir, pessoasImgDir, notasDir, whatsappMidiaDir, whatsappAuthDir, backupsDir, certificadosDir].forEach((dir) => {
     fs.mkdirSync(dir, { recursive: true });
   });
 }
@@ -61,6 +65,7 @@ module.exports = {
   whatsappMidiaDir,
   whatsappAuthDir,
   backupsDir,
+  certificadosDir,
   dbPath,
   ensureDirs,
 };

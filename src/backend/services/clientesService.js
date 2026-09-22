@@ -61,6 +61,15 @@ function dados(body) {
     data_nascimento: body.data_nascimento || null,
     responsavel_nome: body.responsavel_nome || null,
     responsavel_telefone: body.responsavel_telefone || null,
+    // Endereco estruturado — so' usado na hora de montar a DPS da NFS-e
+    // (o cliente pode ser tomador de servico); opcional.
+    endereco_cep: body.endereco_cep ? String(body.endereco_cep).replace(/\D/g, '') || null : null,
+    endereco_logradouro: body.endereco_logradouro || null,
+    endereco_numero: body.endereco_numero || null,
+    endereco_complemento: body.endereco_complemento || null,
+    endereco_bairro: body.endereco_bairro || null,
+    endereco_municipio_ibge: body.endereco_municipio_ibge ? String(body.endereco_municipio_ibge).replace(/\D/g, '') || null : null,
+    endereco_uf: body.endereco_uf ? String(body.endereco_uf).trim().toUpperCase().slice(0, 2) || null : null,
   };
 }
 
@@ -69,9 +78,13 @@ function criar(body) {
   const d = dados(body);
   const info = db.prepare(
     `INSERT INTO clientes (nome, cpf, telefone, email, endereco, limite_credito, observacao,
-       natureza, data_nascimento, responsavel_nome, responsavel_telefone)
+       natureza, data_nascimento, responsavel_nome, responsavel_telefone,
+       endereco_cep, endereco_logradouro, endereco_numero, endereco_complemento,
+       endereco_bairro, endereco_municipio_ibge, endereco_uf)
      VALUES (@nome, @cpf, @telefone, @email, @endereco, @limite_credito, @observacao,
-       @natureza, @data_nascimento, @responsavel_nome, @responsavel_telefone)`
+       @natureza, @data_nascimento, @responsavel_nome, @responsavel_telefone,
+       @endereco_cep, @endereco_logradouro, @endereco_numero, @endereco_complemento,
+       @endereco_bairro, @endereco_municipio_ibge, @endereco_uf)`
   ).run(d);
   return obter(info.lastInsertRowid);
 }
@@ -85,7 +98,11 @@ function atualizar(id, body) {
     `UPDATE clientes SET nome=@nome, cpf=@cpf, telefone=@telefone, email=@email,
       endereco=@endereco, limite_credito=@limite_credito, observacao=@observacao,
       natureza=@natureza, data_nascimento=@data_nascimento,
-      responsavel_nome=@responsavel_nome, responsavel_telefone=@responsavel_telefone WHERE id=@id`
+      responsavel_nome=@responsavel_nome, responsavel_telefone=@responsavel_telefone,
+      endereco_cep=@endereco_cep, endereco_logradouro=@endereco_logradouro,
+      endereco_numero=@endereco_numero, endereco_complemento=@endereco_complemento,
+      endereco_bairro=@endereco_bairro, endereco_municipio_ibge=@endereco_municipio_ibge,
+      endereco_uf=@endereco_uf WHERE id=@id`
   ).run({ ...d, id });
   return obter(id);
 }

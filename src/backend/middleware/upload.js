@@ -116,4 +116,25 @@ const uploadWhatsappMidia = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
 });
 
-module.exports = { uploadFoto, uploadFotoPessoa, uploadXml, uploadPlanilha, uploadWhatsappMidia, uploadOfx };
+// ----------------------- Upload de certificado digital (.pfx) para NFS-e -----------------------
+// So existe um certificado por instalacao: nome fixo, sempre sobrescreve o anterior.
+const storageCertificado = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, paths.certificadosDir),
+  filename: (req, file, cb) => cb(null, 'certificado.pfx'),
+});
+
+function certificadoFilter(req, file, cb) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (!['.pfx', '.p12'].includes(ext)) {
+    return cb(new AppError('Envie um arquivo de certificado digital (.pfx ou .p12).'));
+  }
+  cb(null, true);
+}
+
+const uploadCertificado = multer({
+  storage: storageCertificado,
+  fileFilter: certificadoFilter,
+  limits: { fileSize: 100 * 1024 }, // 100 KB — um .pfx tipico tem poucos KB
+});
+
+module.exports = { uploadFoto, uploadFotoPessoa, uploadXml, uploadPlanilha, uploadWhatsappMidia, uploadOfx, uploadCertificado };

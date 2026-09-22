@@ -22,9 +22,11 @@
     "express": "^4.19.2",
     "fast-xml-parser": "^4.5.0",
     "multer": "^2.2.0",
+    "node-forge": "^1.4.0",
     "qrcode": "^1.5.4",
     "whatsapp-web.js": "^1.34.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xml-crypto": "^6.3.1"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
