@@ -434,6 +434,13 @@ window.PaginaAgenda = (function () {
   }
 
   // ------------------------------ Detalhe ------------------------------
+  /** Professor: botoes rapidos de presenca para aula ainda sem registro, de hoje ou anterior. Nao fatura. */
+  function presencaRapida(a) {
+    const d = new Date();
+    const hojeLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return ehProfessor() && !a.suspensa && !a.venda_id && (a.status === 'agendado' || a.status === 'confirmado') && a.data <= hojeLocal;
+  }
+
   function abrirDetalhe(a) {
     const nome = nomeAgendamento(a);
     const tel = a.cliente_telefone || a.telefone;
@@ -465,6 +472,7 @@ window.PaginaAgenda = (function () {
         foot.innerHTML = `
           <div class="flex gap-12" style="flex-wrap:wrap;width:100%">
             ${!a.suspensa && !ehInstituto() && !crecheComTurma() ? `<button class="btn btn--secundario" id="d-status" ${a.venda_id ? 'disabled' : ''}>Atualizar status</button>` : ''}
+            ${presencaRapida(a) ? '<button class="btn btn--secundario" id="d-presente">✓ Presente</button><button class="btn btn--secundario" id="d-faltou">✗ Faltou</button>' : ''}
             ${tel ? '<button class="btn btn--secundario" id="d-zap">💬 WhatsApp</button>' : ''}
             <div class="cresce"></div>
             ${ehProfessor() && AgendaSemana.remarcavel(a) ? '<button class="btn btn--secundario" id="d-remarcar">↻ Remarcar</button>' : ''}
@@ -476,6 +484,13 @@ window.PaginaAgenda = (function () {
         if (btnStatus) btnStatus.addEventListener('click', async () => {
           try { await API.post(`/api/agenda/${a.id}/status`, { status: el.querySelector('#det-status').value }); UI.sucesso('Status atualizado.'); el.remove(); await atualizarVistaAtual(); }
           catch (e) { UI.erro(e.message); }
+        });
+        [['#d-presente', 'atendido', 'Presença registrada.'], ['#d-faltou', 'faltou', 'Falta registrada.']].forEach(([sel, status, msg]) => {
+          const b = foot.querySelector(sel);
+          if (b) b.addEventListener('click', async () => {
+            try { await API.post(`/api/agenda/${a.id}/status`, { status }); UI.sucesso(msg); el.remove(); await atualizarVistaAtual(); }
+            catch (e) { UI.erro(e.message); }
+          });
         });
         const zap = foot.querySelector('#d-zap');
         if (zap) zap.addEventListener('click', () => enviarWhatsApp(a));

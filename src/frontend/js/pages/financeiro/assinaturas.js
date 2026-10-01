@@ -12,9 +12,11 @@ window.FinanceiroAssinaturas = (function () {
         : S.ehProfessor()
         ? 'Cadastre a mensalidade de cada aluno. Todo mês, no dia de vencimento, a cobrança é lançada automaticamente em "A Receber".'
         : 'Cadastre mensalidades de clientes (academia, escola, plano de serviço…). Todo mês, a cobrança é lançada automaticamente em "A Receber", no dia de vencimento escolhido.'}</p>
-      <div class="barra-ferramentas"><div class="cresce"></div><button class="btn" id="as-nova">+ ${S.ehProfessor() ? 'Nova mensalidade' : 'Nova ' + S.rMens()}</button></div>
+      <div class="barra-ferramentas"><div class="cresce"></div>${S.ehProfessor() ? '<button class="btn btn--secundario" id="as-reajustar">Reajustar mensalidades</button>' : ''}<button class="btn" id="as-nova">+ ${S.ehProfessor() ? 'Nova mensalidade' : 'Nova ' + S.rMens()}</button></div>
       <div class="card"><div id="as-lista">Carregando…</div></div>`;
     alvo.querySelector('#as-nova').addEventListener('click', () => form());
+    const reaj = alvo.querySelector('#as-reajustar');
+    if (reaj) reaj.addEventListener('click', () => FinanceiroReajuste.abrir({ aoConcluir: listar }));
     await listar();
   }
 
@@ -40,9 +42,13 @@ window.FinanceiroAssinaturas = (function () {
         <td>${a.ativa && !encerrada ? (badgeMes[a.mes_situacao] || '<span class="badge badge--muted">sem cobrança</span>') : '—'}</td>` : ''}
         <td>${UI.moeda(a.valor)}</td>
         <td>${a.data_inicio ? UI.dataHora(a.data_inicio) : '—'} até ${a.data_fim ? UI.dataHora(a.data_fim) : 'indeterminado'}</td>
-        <td>${encerrada ? '<span class="badge badge--muted">Encerrada</span>' : (a.ativa ? '<span class="badge badge--ok">Ativa</span>' : '<span class="badge badge--muted">Pausada</span>')}</td>
+        <td>${encerrada ? '<span class="badge badge--muted">Encerrada</span>' : (a.ativa ? (prof && PausaMensalidade.emPausa(a, hojeLocal) ? PausaMensalidade.seloHTML(a, hojeLocal) : '<span class="badge badge--ok">Ativa</span>') : '<span class="badge badge--muted">Pausada</span>')}</td>
         <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn--secundario" data-as-pausar="${a.id}" data-ativa="${a.ativa}">${a.ativa ? 'Pausar' : 'Reativar'}</button>
+          ${prof && a.ativa && !encerrada
+            ? (PausaMensalidade.emPausa(a, hojeLocal)
+              ? `<button class="btn btn--secundario" data-as-retomar="${a.id}">Retomar</button>`
+              : `<button class="btn btn--secundario" data-as-pausar-periodo="${a.id}">Pausar</button>`)
+            : `<button class="btn btn--secundario" data-as-pausar="${a.id}" data-ativa="${a.ativa}">${a.ativa ? 'Pausar' : 'Reativar'}</button>`}
           <button class="btn btn--secundario" data-as-editar="${a.id}">Editar</button>
           <button class="btn btn--secundario" data-as-excluir="${a.id}">✕</button>
         </td>
@@ -52,6 +58,12 @@ window.FinanceiroAssinaturas = (function () {
     alvo.querySelectorAll('[data-as-editar]').forEach((b) => b.addEventListener('click', () => {
       const a = assinaturas.find((x) => x.id === Number(b.dataset.asEditar));
       form(a);
+    }));
+    alvo.querySelectorAll('[data-as-pausar-periodo]').forEach((b) => b.addEventListener('click', () => {
+      PausaMensalidade.abrir({ assinatura: assinaturas.find((x) => x.id === Number(b.dataset.asPausarPeriodo)), aoConcluir: listar });
+    }));
+    alvo.querySelectorAll('[data-as-retomar]').forEach((b) => b.addEventListener('click', () => {
+      PausaMensalidade.retomar(assinaturas.find((x) => x.id === Number(b.dataset.asRetomar)), listar);
     }));
     alvo.querySelectorAll('[data-as-pausar]').forEach((b) => b.addEventListener('click', async () => {
       const ativa = b.dataset.ativa === '1';

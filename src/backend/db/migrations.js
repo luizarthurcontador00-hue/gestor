@@ -1808,6 +1808,29 @@ const migrations = [
       `);
     },
   },
+  {
+    version: 51,
+    name: 'mensalidade-pausa-e-reajuste',
+    up(db) {
+      db.exec(`
+        -- Pausa com periodo: a cobranca do mes e' pulada quando o vencimento cai
+        -- dentro de [pausada_de, pausada_ate] (ate NULL = ate retomar). Separada
+        -- de "ativa", que continua sendo o encerramento/pausa sem data.
+        ALTER TABLE assinaturas ADD COLUMN pausada_de TEXT;
+        ALTER TABLE assinaturas ADD COLUMN pausada_ate TEXT;
+
+        CREATE TABLE IF NOT EXISTS assinaturas_reajustes (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          assinatura_id INTEGER NOT NULL REFERENCES assinaturas(id) ON DELETE CASCADE,
+          valor_anterior REAL NOT NULL,
+          valor_novo    REAL NOT NULL,
+          motivo        TEXT,
+          aplicado_em   TEXT NOT NULL DEFAULT (date('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_assin_reaj_assinatura ON assinaturas_reajustes(assinatura_id);
+      `);
+    },
+  },
 ];
 
 /**

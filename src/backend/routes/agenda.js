@@ -4,6 +4,7 @@ const express = require('express');
 const { asyncHandler, AppError } = require('../utils/errors');
 const { uploadFotoPessoa } = require('../middleware/upload');
 const ag = require('../services/agendaService');
+const frequencia = require('../services/frequenciaService');
 
 const router = express.Router();
 
@@ -26,6 +27,7 @@ router.delete('/aulas-recorrentes/:id', asyncHandler((req, res) => res.json(ag.e
 router.post('/aulas-recorrentes/gerar-pendentes', asyncHandler((req, res) => res.json(ag.gerarOcorrenciasPendentes())));
 
 // Agendamentos
+router.get('/frequencia/aluno/:id', asyncHandler((req, res) => res.json(frequencia.frequenciaAluno(req.params.id, req.query))));
 router.get('/resumo', asyncHandler((req, res) => res.json(ag.resumoDia(req.query.data))));
 router.get('/', asyncHandler((req, res) => res.json(ag.listar(req.query))));
 router.get('/:id', asyncHandler((req, res) => res.json(ag.obter(req.params.id))));

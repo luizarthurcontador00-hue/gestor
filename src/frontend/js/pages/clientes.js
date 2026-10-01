@@ -248,7 +248,7 @@ window.PaginaClientes = (function () {
         <tr><th>Telefone</th><td>${UI.escapar(c.telefone || '—')}</td><th>CPF</th><td>${UI.escapar(c.cpf || '—')}</td></tr>
         <tr><th>E-mail</th><td>${UI.escapar(c.email || '—')}</td><th>Endereço</th><td>${UI.escapar(c.endereco || '—')}</td></tr>
       </table>
-      ${ehProfessor() ? '<h3>📚 Aulas e mensalidade</h3><div id="cli-aulas-ficha" class="mb-16"></div>' : ''}
+      ${ehProfessor() ? '<h3>📚 Aulas e mensalidade</h3><div id="cli-aulas-ficha" class="mb-16"></div><h3>📈 Frequência</h3><div id="cli-freq-ficha" class="mb-16"></div>' : ''}
       <h3>${(ehInstituto() || ehCreche()) ? 'Cobranças a receber' : 'Contas a receber (fiado)'}</h3>
       ${c.contas.length ? `<table class="tabela"><thead><tr><th>Descrição</th><th>Venc.</th><th>Valor</th><th>Situação</th></tr></thead>
         <tbody>${c.contas.map((ct) => `<tr><td>${UI.escapar(ct.descricao)}</td><td>${ct.vencimento ? UI.dataHora(ct.vencimento) : '—'}</td><td>${UI.moeda(ct.valor)}</td>
@@ -264,6 +264,8 @@ window.PaginaClientes = (function () {
       aoAbrir: (el) => {
         const secaoFicha = el.querySelector('#cli-aulas-ficha');
         if (secaoFicha) secaoAulas(secaoFicha, c);
+        const secaoFreq = el.querySelector('#cli-freq-ficha');
+        if (secaoFreq) FrequenciaAluno.montar(secaoFreq, c);
         const foot = el.querySelector('.modal__foot');
         const bEdit = document.createElement('button');
         bEdit.className = 'btn'; bEdit.textContent = 'Editar';
@@ -301,7 +303,7 @@ window.PaginaClientes = (function () {
   const mesAtual = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 
   async function secaoAulas(alvo, aluno) {
-    let horarios; let mensalidade; let conta;
+    let horarios; let mensalidade; let conta; let reajuste = null;
     try {
       const [h, assinaturas, ficha] = await Promise.all([
         API.get('/api/agenda/aulas-recorrentes?aluno_id=' + aluno.id),
@@ -313,10 +315,12 @@ window.PaginaClientes = (function () {
       conta = mensalidade
         ? ficha.contas.find((ct) => ct.assinatura_id === mensalidade.id && String(ct.vencimento).slice(0, 7) === mesAtual() && ct.status !== 'cancelada')
         : null;
+      if (mensalidade) reajuste = await API.get(`/api/financeiro/assinaturas/${mensalidade.id}/ultimo-reajuste`).catch(() => null);
     } catch (e) { alvo.innerHTML = `<span class="dica">${UI.escapar(e.message)}</span>`; return; }
 
     const dias = AulaFixaForm.DIAS_SEMANA;
     const hojeISO = new Date().toISOString().slice(0, 10);
+    const emPausa = !!mensalidade && PausaMensalidade.emPausa(mensalidade);
     const situacaoMes = !conta ? '' : conta.status === 'recebido' ? '<span class="badge badge--ok">mês atual pago</span>'
       : (String(conta.vencimento).slice(0, 10) < hojeISO ? '<span class="badge badge--erro">mês atual em atraso</span>' : '<span class="badge badge--alerta">mês atual pendente</span>');
 
@@ -336,16 +340,20 @@ window.PaginaClientes = (function () {
         </td></tr>`).join('')}</tbody></table>`
         : '<p class="dica" style="margin:8px 0 0">Nenhum horário fixo. As aulas avulsas continuam possíveis pela Agenda.</p>'}
       <div class="mt-16" style="border-top:1px solid var(--borda);padding-top:14px">
-        <strong>Mensalidade</strong> ${situacaoMes}
+        <strong>Mensalidade</strong> ${situacaoMes} ${mensalidade ? PausaMensalidade.seloHTML(mensalidade) : ''}
         <div class="form-grid mt-16">
           <div class="campo"><label>Mensalidade (R$)</label><input id="cli-mens-valor" type="number" step="0.01" min="0" value="${mensalidade ? mensalidade.valor : ''}" /></div>
           <div class="campo"><label>Vence todo dia</label><input id="cli-mens-dia" type="number" min="1" max="31" value="${mensalidade ? mensalidade.dia_vencimento : ''}" placeholder="Ex.: 5" /></div>
         </div>
         <div class="flex gap-12 mt-16" style="align-items:center">
           <button type="button" class="btn" data-mens-salvar>${mensalidade ? 'Atualizar mensalidade' : 'Cadastrar mensalidade'}</button>
+          ${mensalidade ? (emPausa
+            ? '<button type="button" class="btn btn--secundario" data-mens-retomar>Retomar</button>'
+            : '<button type="button" class="btn btn--secundario" data-mens-pausar>Pausar</button>') : ''}
           ${mensalidade ? '<button type="button" class="btn btn--secundario" data-mens-encerrar>Encerrar mensalidade</button>' : ''}
           <span class="dica">${mensalidade ? UI.escapar(mensalidade.descricao) : 'A cobrança é lançada todo mês em Financeiro > A receber.'}</span>
         </div>
+        ${reajuste ? `<div class="dica mt-16">Último reajuste em ${UI.dataHora(reajuste.aplicado_em)}: ${UI.moeda(reajuste.valor_anterior)} → ${UI.moeda(reajuste.valor_novo)}${reajuste.motivo ? ' (' + UI.escapar(reajuste.motivo) + ')' : ''}.</div>` : ''}
       </div>`;
 
     const recarregar = () => secaoAulas(alvo, aluno);
@@ -387,6 +395,10 @@ window.PaginaClientes = (function () {
         await recarregar();
       } catch (e) { UI.erro(e.message); }
     });
+    const pausar = alvo.querySelector('[data-mens-pausar]');
+    if (pausar) pausar.addEventListener('click', () => PausaMensalidade.abrir({ assinatura: mensalidade, aoConcluir: recarregar }));
+    const retomar = alvo.querySelector('[data-mens-retomar]');
+    if (retomar) retomar.addEventListener('click', () => PausaMensalidade.retomar(mensalidade, recarregar));
     const encerrar = alvo.querySelector('[data-mens-encerrar]');
     if (encerrar) encerrar.addEventListener('click', async () => {
       const ok = await UI.confirmar('Encerrar a mensalidade? Novas cobranças deixam de ser lançadas; as já lançadas continuam em "A receber".', { titulo: 'Encerrar mensalidade', textoConfirmar: 'Encerrar' });
@@ -432,5 +444,6 @@ window.PaginaClientes = (function () {
   }
 
 
-  return { titulo: 'Clientes', render };
+  // detalhe: a Central abre a ficha do aluno direto, sem passar pela lista.
+  return { titulo: 'Clientes', render, detalhe };
 })();

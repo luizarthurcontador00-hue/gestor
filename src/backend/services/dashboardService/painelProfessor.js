@@ -6,6 +6,7 @@ const { getDb } = require('../../db/connection');
 const { arred } = require('../precificacaoService');
 const { hoje: hojeISO } = require('../../utils/datas');
 const { margemPeriodo } = require('./vendas');
+const frequencia = require('../frequenciaService');
 
 function painelProfessor() {
   const db = getDb();
@@ -36,6 +37,7 @@ function painelProfessor() {
     margem_mes: margemMes.margem,
     a_receber: arred(aReceber),
     a_pagar: arred(aPagar),
+    ...frequencia.resumoPainel(),
   };
 }
 

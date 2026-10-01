@@ -816,7 +816,55 @@ window.Documentos = (function () {
     await emitirModeloLote('certificado', lista, nomeArquivo('certificados', turma.nome), CSS_CERTIFICADO);
   }
 
+  // ============== Relatório de frequência (professor particular) ==============
+
+  const ROTULO_AULA = {
+    atendido: 'Aula dada', faltou: 'Faltou', cancelado: 'Cancelada', agendado: 'Agendada', confirmado: 'Confirmada',
+  };
+  const POR_QUEM = { aluno: 'a pedido do aluno', professor: 'a pedido do professor', feriado: 'por feriado' };
+
+  function corpoFrequencia(d, cfg) {
+    const t = d.totais;
+    const hojeISO = new Date().toISOString().slice(0, 10);
+    const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    const rotuloAula = (a) => (a.data < hojeISO && (a.status === 'agendado' || a.status === 'confirmado') ? 'Sem registro' : (ROTULO_AULA[a.status] || a.status));
+    return `
+      ${cabecalho({ ...cfg, nome_loja: cfg.nome_loja || 'Professor particular' }, 'Relatório de frequência',
+        `Aluno: <strong>${esc(d.aluno.nome)}</strong> · Período: ${dataBR(d.periodo.inicio)} a ${dataBR(d.periodo.fim)}`)}
+      <h2>Resumo</h2>
+      <table>
+        <tr><th>Aulas dadas</th><td>${t.dadas}</td><th>Faltas</th><td>${t.faltas}</td>
+          <th>Remarcadas</th><td>${t.remarcadas}</td><th>Canceladas</th><td>${t.canceladas}</td></tr>
+        <tr><th colspan="2">Frequência</th><td colspan="6"><strong>${t.frequencia_pct != null ? t.frequencia_pct + '%' : '—'}</strong>
+          <span class="dica">aulas dadas ÷ (dadas + faltas)</span></td></tr>
+      </table>
+      <h2>Últimos 6 meses</h2>
+      <table>
+        <thead><tr><th>Mês</th><th>Dadas</th><th>Faltas</th><th>Frequência</th></tr></thead>
+        <tbody>${d.serie_mensal.map((m) => `<tr><td>${MES[Number(m.mes.slice(5, 7)) - 1]}/${m.mes.slice(0, 4)}</td><td>${m.dadas}</td><td>${m.faltas}</td>
+          <td>${m.frequencia_pct != null ? m.frequencia_pct + '%' : '—'}</td></tr>`).join('')}</tbody>
+      </table>
+      <h2>Aulas do período</h2>
+      ${d.ultimas_aulas.length ? `<table>
+        <thead><tr><th>Data</th><th>Horário</th><th>Matéria</th><th>Situação</th></tr></thead>
+        <tbody>${d.ultimas_aulas.map((a) => `<tr><td>${dataBR(a.data)}</td><td>${esc(a.hora_inicio)}</td><td>${esc(a.materia || '—')}</td>
+          <td>${esc(rotuloAula(a))}${a.remarcada ? ` <span class="dica">(remarcada${a.remarcado_por ? ' ' + POR_QUEM[a.remarcado_por] : ''})</span>` : ''}</td></tr>`).join('')}</tbody>
+      </table>
+      ${d.ultimas_aulas.length >= 20 ? '<p class="dica">Mostrando as 20 aulas mais recentes do período.</p>' : ''}`
+        : '<p class="dica">Nenhuma aula no período.</p>'}
+      <div class="rodape">Emitido em ${dataBR(hojeISO)} · ${esc(cfg.nome_loja || 'Professor particular')}</div>`;
+  }
+
+  /** Relatório que o professor entrega ao aluno/responsável. `d` é a resposta de /api/agenda/frequencia/aluno/:id. */
+  async function relatorioFrequenciaAluno(d) {
+    let cfg;
+    try { cfg = (await API.get('/api/config')) || {}; } catch (e) { UI.erro(e.message); return; }
+    try { await UI.baixarPDF(pagina('Relatório de frequência', cfg, corpoFrequencia(d, cfg)), nomeArquivo('frequencia', d.aluno.nome)); }
+    catch (e) { UI.erro(e.message); }
+  }
+
   return {
+    relatorioFrequenciaAluno, corpoFrequencia,
     fichaDoAluno, fichasDoAlunoLote, folhaDeChamada, folhasDeChamadaLote,
     calendarioInstrutor, calendariosInstrutoresLote, escalaDoDia, escalaDoMes, relatorioDeTurmas,
     declaracaoMatricula, declaracoesMatriculaLote, declaracaoVoluntariado, termoVoluntariado,

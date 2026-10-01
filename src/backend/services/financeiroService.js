@@ -524,7 +524,7 @@ function gerarAssinaturasPendentes() {
       AND date(data_inicio) <= date('now','localtime')
       AND (data_fim IS NULL OR date(data_fim) >= date('now','localtime'))
   `).all();
-  if (!ativas.length) return { geradas: 0 };
+  if (!ativas.length) return { geradas: 0, puladas_por_pausa: 0 };
 
   const agora = new Date();
   const ano = agora.getFullYear();
@@ -533,6 +533,7 @@ function gerarAssinaturasPendentes() {
   const ultimoDia = ultimoDiaDoMes(ano, mes);
 
   let geradas = 0;
+  let puladas = 0;
   const tx = db.transaction(() => {
     const jaTem = db.prepare(
       "SELECT 1 FROM contas_receber WHERE assinatura_id = ? AND strftime('%Y-%m', vencimento) = ?"
@@ -545,12 +546,186 @@ function gerarAssinaturasPendentes() {
       if (jaTem.get(a.id, aaMm)) continue;
       const dia = Math.min(Number(a.dia_vencimento), ultimoDia);
       const vencimento = `${aaMm}-${String(dia).padStart(2, '0')}`;
+      if (vencimentoEmPausa(a, vencimento)) { puladas++; continue; }
       inserir.run(a.cliente_id, a.id, a.descricao, a.valor, vencimento);
       geradas++;
     }
   });
   tx();
-  return { geradas };
+  return { geradas, puladas_por_pausa: puladas };
+}
+
+/**
+ * O mes e' pulado quando o DIA DE VENCIMENTO daquele mes cai dentro da pausa
+ * [pausada_de, pausada_ate]; pausada_ate nula = pausa ate retomar. Passado o
+ * periodo, a geracao volta sozinha.
+ */
+function vencimentoEmPausa(a, vencimento) {
+  return !!a.pausada_de && vencimento >= a.pausada_de && (!a.pausada_ate || vencimento <= a.pausada_ate);
+}
+
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function somarDiasISO(iso, dias) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+function obterAssinaturaComCliente(db, id) {
+  return db.prepare(
+    'SELECT a.*, c.nome AS cliente_nome FROM assinaturas a JOIN clientes c ON c.id = a.cliente_id WHERE a.id = ?'
+  ).get(id);
+}
+
+/**
+ * Pausa a mensalidade no periodo [de, ate] (ate vazio = ate retomar). Nao apaga
+ * nem altera cobranca ja lancada: se ha uma pendente dentro da pausa, avisa em
+ * `cobranca_pendente_no_periodo` para o usuario cancelar em "A receber".
+ * Com `pausar_aulas`, desativa as aulas fixas do aluno e cancela (sem venda)
+ * as ocorrencias futuras ainda "agendado" dentro do periodo.
+ */
+function pausarAssinatura(id, { de, ate, pausar_aulas } = {}) {
+  const db = getDb();
+  const a = db.prepare('SELECT * FROM assinaturas WHERE id = ?').get(id);
+  if (!a) throw new AppError('Mensalidade nao encontrada.', 404);
+  const inicio = de || hoje();
+  const fim = ate || null;
+  if (!DATA_ISO.test(inicio)) throw new AppError('Informe a data de inicio da pausa.');
+  if (fim && !DATA_ISO.test(fim)) throw new AppError('Data final da pausa invalida.');
+  if (fim && fim < inicio) throw new AppError('A data final da pausa nao pode ser anterior ao inicio.');
+
+  const canceladas = [];
+  let aulasPausadas = 0;
+  db.transaction(() => {
+    db.prepare('UPDATE assinaturas SET pausada_de = ?, pausada_ate = ? WHERE id = ?').run(inicio, fim, id);
+    if (!pausar_aulas) return;
+    const aulas = db.prepare('SELECT id FROM aulas_recorrentes WHERE aluno_id = ? AND ativa = 1').all(a.cliente_id);
+    const desativar = db.prepare('UPDATE aulas_recorrentes SET ativa = 0 WHERE id = ?');
+    const futuras = db.prepare(`
+      SELECT id FROM agendamentos
+      WHERE aula_recorrente_id = ? AND status = 'agendado' AND venda_id IS NULL AND suspensa = 0
+        AND data >= ? AND data >= ? AND (? IS NULL OR data <= ?)
+    `);
+    const cancelar = db.prepare("UPDATE agendamentos SET status = 'cancelado' WHERE id = ?");
+    for (const aula of aulas) {
+      desativar.run(aula.id);
+      aulasPausadas++;
+      for (const f of futuras.all(aula.id, hoje(), inicio, fim, fim)) { cancelar.run(f.id); canceladas.push(f.id); }
+    }
+  })();
+
+  if (canceladas.length) {
+    // eslint-disable-next-line global-require
+    const google = require('./googleAgendaService');
+    canceladas.forEach((aid) => google.sincronizarAsync(aid));
+  }
+  const pend = db.prepare(`
+    SELECT 1 FROM contas_receber WHERE assinatura_id = ? AND status = 'pendente'
+      AND vencimento >= ? AND (? IS NULL OR vencimento <= ?) LIMIT 1
+  `).get(id, inicio, fim, fim);
+  return {
+    assinatura: obterAssinaturaComCliente(db, id),
+    cobranca_pendente_no_periodo: !!pend,
+    aulas_pausadas: aulasPausadas,
+    aulas_canceladas: canceladas.length,
+  };
+}
+
+/**
+ * Encerra a pausa ontem (e nao zera as datas): assim um mes cujo vencimento ja
+ * passou dentro da pausa continua pulado, em vez de gerar cobranca atrasada.
+ * Pausa que nem comecou e' simplesmente apagada. Nao reativa aulas fixas:
+ * devolve quantas seguem pausadas para a tela oferecer reativar.
+ */
+function retomarAssinatura(id) {
+  const db = getDb();
+  const a = db.prepare('SELECT * FROM assinaturas WHERE id = ?').get(id);
+  if (!a) throw new AppError('Mensalidade nao encontrada.', 404);
+  if (!a.pausada_de || (a.pausada_ate && a.pausada_ate < hoje())) throw new AppError('Esta mensalidade nao esta pausada.');
+  const ontem = somarDiasISO(hoje(), -1);
+  if (ontem < a.pausada_de) db.prepare('UPDATE assinaturas SET pausada_de = NULL, pausada_ate = NULL WHERE id = ?').run(id);
+  else db.prepare('UPDATE assinaturas SET pausada_ate = ? WHERE id = ?').run(ontem, id);
+  gerarAssinaturasPendentes();
+  const aulas = db.prepare(
+    'SELECT COUNT(*) AS n FROM aulas_recorrentes WHERE aluno_id = ? AND ativa = 0 AND (data_fim IS NULL OR data_fim >= ?)'
+  ).get(a.cliente_id, hoje()).n;
+  return { assinatura: obterAssinaturaComCliente(db, id), aulas_pausadas: aulas };
+}
+
+// ---- Reajuste de mensalidades ----
+
+function assinaturasParaReajuste(db, ids) {
+  const filtro = Array.isArray(ids) && ids.length ? new Set(ids.map(Number)) : null;
+  return db.prepare(`
+    SELECT a.id, a.cliente_id, a.descricao, a.valor, c.nome AS cliente_nome
+    FROM assinaturas a JOIN clientes c ON c.id = a.cliente_id
+    WHERE a.ativa = 1 AND (a.data_fim IS NULL OR a.data_fim >= ?)
+    ORDER BY c.nome
+  `).all(hoje()).filter((a) => !filtro || filtro.has(a.id));
+}
+
+function calcularReajuste(tipo, valor, atual) {
+  const v = Number(valor);
+  if (tipo !== 'percentual' && tipo !== 'valor') throw new AppError('Escolha reajuste por percentual ou por valor.');
+  if (valor === '' || valor == null || !Number.isFinite(v)) throw new AppError('Informe o valor do reajuste.');
+  if (tipo === 'percentual') {
+    if (v === 0) throw new AppError('Informe um percentual diferente de zero.');
+    if (v < -90) throw new AppError('O percentual nao pode ser menor que -90%.');
+    return arred(atual * (1 + v / 100));
+  }
+  return arred(v);
+}
+
+/** Calcula o reajuste sem gravar nada. */
+function simularReajuste({ tipo, valor, assinatura_ids } = {}) {
+  const itens = assinaturasParaReajuste(getDb(), assinatura_ids).map((a) => {
+    const novo = calcularReajuste(tipo, valor, a.valor);
+    if (!(novo > 0)) throw new AppError(`O novo valor de ${a.cliente_nome} ficaria zerado ou negativo.`);
+    return {
+      assinatura_id: a.id, cliente_id: a.cliente_id, cliente_nome: a.cliente_nome, descricao: a.descricao,
+      valor_atual: a.valor, valor_novo: novo, diferenca: arred(novo - a.valor),
+    };
+  });
+  return {
+    itens,
+    total_atual: arred(itens.reduce((t, i) => t + i.valor_atual, 0)),
+    total_novo: arred(itens.reduce((t, i) => t + i.valor_novo, 0)),
+  };
+}
+
+/**
+ * Grava o reajuste e o historico. Por padrao vale a partir da proxima cobranca
+ * a ser gerada; so mexe nas cobrancas PENDENTES do mes corrente se pedido.
+ */
+function aplicarReajuste({ tipo, valor, assinatura_ids, motivo, atualizar_cobranca_do_mes } = {}) {
+  if (!Array.isArray(assinatura_ids) || !assinatura_ids.length) throw new AppError('Selecione ao menos uma mensalidade.');
+  const db = getDb();
+  const { itens } = simularReajuste({ tipo, valor, assinatura_ids });
+  if (!itens.length) throw new AppError('Nenhuma mensalidade ativa encontrada para reajustar.');
+  const mudam = itens.filter((i) => i.diferenca !== 0);
+  const aaMm = hoje().slice(0, 7);
+  let cobrancas = 0;
+  db.transaction(() => {
+    const atualizar = db.prepare('UPDATE assinaturas SET valor = ? WHERE id = ?');
+    const historico = db.prepare('INSERT INTO assinaturas_reajustes (assinatura_id, valor_anterior, valor_novo, motivo) VALUES (?, ?, ?, ?)');
+    const cobranca = db.prepare(
+      "UPDATE contas_receber SET valor = ? WHERE assinatura_id = ? AND status = 'pendente' AND strftime('%Y-%m', vencimento) = ?"
+    );
+    for (const i of mudam) {
+      atualizar.run(i.valor_novo, i.assinatura_id);
+      historico.run(i.assinatura_id, i.valor_atual, i.valor_novo, (motivo || '').trim() || null);
+      if (atualizar_cobranca_do_mes) cobrancas += cobranca.run(i.valor_novo, i.assinatura_id, aaMm).changes;
+    }
+  })();
+  return { reajustadas: mudam.length, cobrancas_atualizadas: cobrancas };
+}
+
+/** Ultimo reajuste da mensalidade (para a ficha do aluno). */
+function ultimoReajuste(assinaturaId) {
+  return getDb().prepare(
+    'SELECT valor_anterior, valor_novo, motivo, aplicado_em FROM assinaturas_reajustes WHERE assinatura_id = ? ORDER BY id DESC LIMIT 1'
+  ).get(assinaturaId) || null;
 }
 
 // ========================== Contas a receber ==========================
@@ -930,6 +1105,7 @@ module.exports = {
   alertas, fluxoCaixa,
   listarContasFixas, criarContaFixa, atualizarContaFixa, excluirContaFixa, gerarContasFixasPendentes,
   listarAssinaturas, criarAssinatura, atualizarAssinatura, excluirAssinatura, gerarAssinaturasPendentes,
+  pausarAssinatura, retomarAssinatura, simularReajuste, aplicarReajuste, ultimoReajuste,
   // contas financeiras (saldos)
   listarContasFinanceiras, criarContaFinanceira, atualizarContaFinanceira,
   ajustarSaldoConta, excluirContaFinanceira, extratoConta,

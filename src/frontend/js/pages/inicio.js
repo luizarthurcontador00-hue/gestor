@@ -152,7 +152,29 @@ window.PaginaInicio = (function () {
       ${cardStat('Faturamento do mês', UI.moeda(r.faturamento_mes), '')}
       ${cardStat('Lucro do mês', UI.moeda(r.lucro_mes), `margem ${r.margem_mes}%`)}
       ${cardStat('A receber', UI.moeda(r.a_receber), 'pendente')}
-      ${cardStat('A pagar', UI.moeda(r.a_pagar), 'pendente')}`;
+      ${cardStat('A pagar', UI.moeda(r.a_pagar), 'pendente')}
+      ${cardStat('Frequência do mês', r.frequencia_mes_pct != null ? r.frequencia_mes_pct + '%' : '—', 'aulas dadas ÷ (dadas + faltas)')}
+      ${cardStat('Faltas no mês', r.faltas_mes, '')}
+      ${cardStat('Remarcações', r.remarcadas_mes, 'no mês')}
+      ${blocoAtencaoProfessor(r)}`;
+    alvo.querySelectorAll('[data-ir]').forEach((el) => el.addEventListener('click', () => { location.hash = '#/' + el.dataset.ir; }));
+    alvo.querySelectorAll('[data-aluno]').forEach((el) => el.addEventListener('click', () => {
+      if (window.PaginaClientes && PaginaClientes.detalhe) PaginaClientes.detalhe(Number(el.dataset.aluno));
+      else location.hash = '#/clientes';
+    }));
+  }
+
+  /** Aviso de presenca por registrar e lista de alunos para acompanhar (Painel do professor). */
+  function blocoAtencaoProfessor(r) {
+    const semRegistro = r.sem_registro > 0
+      ? `<div class="pi-alerta pi-clicavel" data-ir="agenda" style="grid-column:1/-1">⚠️ ${r.sem_registro} aula${r.sem_registro > 1 ? 's' : ''} passada${r.sem_registro > 1 ? 's' : ''} sem presença registrada — clique para abrir a agenda.</div>`
+      : '';
+    const alunos = r.alunos_atencao || [];
+    const lista = alunos.length ? `<div style="grid-column:1/-1">
+      <strong>Alunos para acompanhar</strong>
+      <table class="tabela mt-16"><tbody>${alunos.map((a) => `<tr class="pi-clicavel" data-aluno="${a.id}">
+        <td>${UI.escapar(a.nome)}</td><td><span class="badge badge--alerta">${UI.escapar(a.motivo)}</span></td></tr>`).join('')}</tbody></table></div>` : '';
+    return semRegistro + lista;
   }
 
   function cardStat(label, valor, sub) {

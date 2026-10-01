@@ -26,6 +26,11 @@ router.get('/assinaturas', asyncHandler((req, res) => res.json(fin.listarAssinat
 router.post('/assinaturas', asyncHandler((req, res) => res.status(201).json(fin.criarAssinatura(req.body || {}))));
 router.put('/assinaturas/:id', asyncHandler((req, res) => res.json(fin.atualizarAssinatura(req.params.id, req.body || {}))));
 router.delete('/assinaturas/:id', asyncHandler((req, res) => res.json(fin.excluirAssinatura(req.params.id))));
+router.post('/assinaturas/reajuste/simular', asyncHandler((req, res) => res.json(fin.simularReajuste(req.body || {}))));
+router.post('/assinaturas/reajuste', asyncHandler((req, res) => res.json(fin.aplicarReajuste(req.body || {}))));
+router.get('/assinaturas/:id/ultimo-reajuste', asyncHandler((req, res) => res.json(fin.ultimoReajuste(req.params.id))));
+router.post('/assinaturas/:id/pausar', asyncHandler((req, res) => res.json(fin.pausarAssinatura(req.params.id, req.body || {}))));
+router.post('/assinaturas/:id/retomar', asyncHandler((req, res) => res.json(fin.retomarAssinatura(req.params.id))));
 router.post('/assinaturas/gerar-pendentes', asyncHandler((req, res) => res.json(fin.gerarAssinaturasPendentes())));
 
 // ------------------------- Contas a receber -------------------------
