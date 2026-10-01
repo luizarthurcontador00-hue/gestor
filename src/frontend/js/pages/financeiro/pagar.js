@@ -66,6 +66,8 @@ window.FinanceiroPagar = (function () {
         <div class="dica mt-16">${ehEdicao ? 'Editando apenas este lançamento.' : 'A categoria organiza a conta no DRE. Com mais de uma parcela, cada parcela vence a cada mês (uma conta por parcela).'}</div>`,
       textoConfirmar: 'Salvar',
       aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#cp-forn'), 'fornecedor', { aoCriar: (r) => S.state.fornecedores.push(r) });
+        CadastroRapido.ligar(el.querySelector('#cp-cat'), 'categoria_despesa', { aoCriar: (r) => S.state.categoriasDespesa.push(r) });
         if (ehEdicao) return;
         const parc = el.querySelector('#cp-parc');
         const parciniWrap = el.querySelector('#cp-parcini-wrap');

@@ -229,6 +229,10 @@ window.PaginaCRM = (function () {
           const opt = e.target.selectedOptions[0];
           if (opt && opt.dataset.pct) { el.querySelector('#fv-comissao-func-pct').value = opt.dataset.pct; atualizarPreviewFuncionario(); }
         });
+        CadastroRapido.ligar(el.querySelector('#fv-agente'), 'profissional', {
+          rotulo: 'funcionário', aoCriar: (r) => agentes.push(r),
+          opcao: (r) => ({ texto: `${r.nome} (${r.comissao_pct || 0}%)`, data: { pct: r.comissao_pct || 0 } }),
+        });
       },
       aoConfirmar: async (el) => {
         const dados = {

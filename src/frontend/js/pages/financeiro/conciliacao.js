@@ -10,7 +10,9 @@ window.FinanceiroConciliacao = (function () {
     const alvo = S.alvoConteudo();
     S.state.contasFin = await API.get('/api/financeiro/contas-financeiras').catch(() => []);
     if (!S.state.contasFin.length) {
-      alvo.innerHTML = '<div class="card vazio">Cadastre uma conta financeira primeiro (aba "Formas de pagamento → contas" ou no botão de saldos) para poder importar um extrato.</div>';
+      alvo.innerHTML = `<div class="card vazio">Cadastre uma conta financeira primeiro (aba "Formas de pagamento → contas" ou no botão de saldos) para poder importar um extrato.
+        <div class="campo mt-16" style="max-width:420px;margin:16px auto 0;text-align:left"><label>Conta financeira</label><select id="cc-conta-vazia"></select></div></div>`;
+      CadastroRapido.ligar(alvo.querySelector('#cc-conta-vazia'), 'conta', { aoCriar: () => render() });
       return;
     }
     alvo.innerHTML = `
@@ -38,6 +40,10 @@ window.FinanceiroConciliacao = (function () {
       </div>
       <div class="card"><div id="cc-lista">Carregando…</div></div>`;
 
+    CadastroRapido.ligar(alvo.querySelector('#cc-conta'), 'conta', {
+      irmaos: [alvo.querySelector('#cc-filtro-conta')],
+      aoCriar: (r) => S.state.contasFin.push(r),
+    });
     alvo.querySelector('#cc-importar').addEventListener('click', importarExtratoOfx);
     alvo.querySelector('#cc-regras').addEventListener('click', gerenciarRegrasConciliacao);
     alvo.querySelector('#cc-filtro-conta').addEventListener('change', (e) => { conciliacaoFiltro.conta_financeira_id = e.target.value; listar(); });
@@ -127,6 +133,9 @@ window.FinanceiroConciliacao = (function () {
     Modal.abrir({
       titulo: 'Regras de conciliação', tamanho: 'modal--grande', corpoHTML: corpo, mostrarConfirmar: false,
       aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#rc-categoria'), 'categoria_despesa', { aoCriar: (r) => S.state.categoriasDespesa.push(r) });
+        CadastroRapido.ligar(el.querySelector('#rc-fornecedor'), 'fornecedor', { aoCriar: (r) => S.state.fornecedores.push(r) });
+        CadastroRapido.ligar(el.querySelector('#rc-cliente'), 'cliente', { aoCriar: (r) => S.state.clientes.push(r) });
         const tipoSel = el.querySelector('#rc-tipo');
         const alternarCampos = () => {
           const pagar = tipoSel.value === 'pagar';
@@ -283,6 +292,9 @@ window.FinanceiroConciliacao = (function () {
     Modal.abrir({
       titulo: `Conciliar — ${tipo === 'pagar' ? 'a pagar' : 'a receber'}`, tamanho: 'modal--grande', corpoHTML: corpo, textoConfirmar: 'Confirmar',
       aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#cc-nova-forn'), 'fornecedor', { aoCriar: (r) => S.state.fornecedores.push(r) });
+        CadastroRapido.ligar(el.querySelector('#cc-nova-cat'), 'categoria_despesa', { aoCriar: (r) => S.state.categoriasDespesa.push(r) });
+        CadastroRapido.ligar(el.querySelector('#cc-nova-cliente'), 'cliente', { aoCriar: (r) => S.state.clientes.push(r) });
         // Delegacao: cobre tanto os radios que ja vem no HTML quanto os que a busca adicionar depois.
         el.addEventListener('change', (e) => {
           if (e.target.name !== 'cc-opcao') return;

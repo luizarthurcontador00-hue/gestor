@@ -68,6 +68,9 @@ window.FinanceiroContasFixas = (function () {
         </div>
         <div class="dica mt-16">Todo mês, no dia informado (ajustado se o mês não tiver esse dia), uma conta a pagar é criada automaticamente.</div>`,
       textoConfirmar: 'Salvar',
+      aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#cf-forn'), 'fornecedor', { aoCriar: (r) => S.state.fornecedores.push(r) });
+      },
       aoConfirmar: async (el) => {
         const dados = {
           descricao: el.querySelector('#cf-desc').value,

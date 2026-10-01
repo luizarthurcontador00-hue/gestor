@@ -83,6 +83,7 @@ window.PaginaTarefas = (function () {
         ${ehEdicao ? `<div class="mt-16"><button type="button" class="btn btn--perigo" id="tf-excluir">Excluir tarefa</button></div>` : ''}`,
       textoConfirmar: 'Salvar',
       aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#tf-resp'), 'profissional', { rotulo: 'responsável', aoCriar: (r) => responsaveis.push(r) });
         const btn = el.querySelector('#tf-excluir');
         if (btn) btn.addEventListener('click', async () => {
           const ok = await UI.confirmar('Excluir esta tarefa?', { titulo: 'Excluir tarefa', textoConfirmar: 'Excluir' });
@@ -180,6 +181,9 @@ window.PaginaTarefas = (function () {
         </div>
         <div class="dica mt-16">Todo mês, no dia informado (ajustado se o mês não tiver esse dia), uma tarefa é criada automaticamente no quadro, como "Pendente".</div>`,
       textoConfirmar: 'Salvar',
+      aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#tff-resp'), 'profissional', { rotulo: 'responsável', aoCriar: (r) => responsaveis.push(r) });
+      },
       aoConfirmar: async (el) => {
         const dados = {
           titulo: el.querySelector('#tff-titulo').value,

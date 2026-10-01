@@ -271,6 +271,12 @@ window.FinanceiroShared = (function () {
           ${state.contasFin.map((c) => `<option value="${c.id}">${UI.escapar(c.nome)} — ${UI.moeda(c.saldo_atual)}</option>`).join('')}
         </select><div class="dica">Deixe em "automático" para usar a conta ligada à forma de pagamento.</div></div>`,
       textoConfirmar: 'Confirmar',
+      aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#bx-conta'), 'conta', {
+          aoCriar: (r) => state.contasFin.push(r),
+          opcao: (r) => ({ texto: `${r.nome} — ${UI.moeda(r.saldo_inicial)}`, data: {} }),
+        });
+      },
       aoConfirmar: async (el) => {
         const conta = el.querySelector('#bx-conta').value || null;
         const campo = ehPagar

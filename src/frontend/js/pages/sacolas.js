@@ -80,6 +80,7 @@ window.PaginaSacolas = (function () {
     Modal.abrir({
       titulo: 'Nova sacola de vendas', tamanho: 'modal--grande', corpoHTML: corpo, textoConfirmar: 'Montar sacola',
       aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#sc-cliente'), 'cliente', { aoCriar: (r) => clientes.push(r) });
         function renderItens() {
           const tb = el.querySelector('#sc-itens');
           tb.innerHTML = itens.length ? itens.map((i, idx) => `<tr>

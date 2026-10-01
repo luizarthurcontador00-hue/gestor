@@ -69,6 +69,10 @@ window.AulaFixaForm = (function () {
           const tel = el.querySelector('#rec-tel');
           if (opt && opt.dataset.tel && !tel.value) tel.value = opt.dataset.tel;
         });
+        // aoCriar mantem os arrays do chamador em dia para o proximo formulario.
+        CadastroRapido.ligar(selAluno, 'cliente', { aoCriar: (r) => clientes.push(r) });
+        CadastroRapido.ligar(materia, 'servico', { aoCriar: (r) => servicos.push(r) });
+        CadastroRapido.ligar(el.querySelector('#rec-prof'), 'profissional', { aoCriar: (r) => profissionais.push(r) });
       },
       aoConfirmar: async (el) => {
         const dados = {

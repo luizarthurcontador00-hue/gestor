@@ -468,6 +468,12 @@ window.PaginaVoluntarios = (function () {
           <span class="dica">Use isto quando não souber a hora exata — o total é o que importa para a declaração.</span></div>
         <div class="campo mt-16"><label>Descrição</label>
           <input id="fa-desc" placeholder="Ex.: montagem do palco do recital" /></div>`,
+      aoAbrir: (el) => {
+        // Voluntario e' um profissional com tipo 'voluntario' (mesma tabela, ver salvar acima).
+        CadastroRapido.ligar(el.querySelector('#fa-pessoa'), 'profissional', {
+          rotulo: 'voluntário', extra: { tipo: 'voluntario' }, aoCriar: (r) => pessoas.push(r),
+        });
+      },
       aoConfirmar: async (el) => {
         const corpo = {
           profissional_id: el.querySelector('#fa-pessoa').value,

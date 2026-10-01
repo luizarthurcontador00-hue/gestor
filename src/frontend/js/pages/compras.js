@@ -478,6 +478,7 @@ window.PaginaCompras = (function () {
         });
 
         if (!editando) {
+          CadastroRapido.ligar(el.querySelector('#pc-fornecedor'), 'fornecedor', { aoCriar: (r) => fornecedores.push(r) });
           el.querySelector('#pc-fornecedor').addEventListener('change', (e) => {
             fornecedorId = e.target.value ? Number(e.target.value) : '';
             if (itens.length) { itens.length = 0; renderItens(); UI.toast('Itens limpos: fornecedor trocado.', 'info'); }

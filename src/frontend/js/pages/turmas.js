@@ -620,6 +620,7 @@ window.PaginaTurmas = (function () {
             <textarea id="tf-obs" rows="2">${ed ? UI.escapar(turma.observacao || '') : ''}</textarea></div>
         </div>`,
       aoAbrir: (el) => {
+        CadastroRapido.ligarAtalho(el.querySelector('#tf-curso'), { rotulo: 'curso', hash: '#/cursos', pagina: 'Cursos' });
         function desenharHorarios() {
           const alvo = el.querySelector('#tf-horarios');
           alvo.innerHTML = horarios.map((h, i) => `

@@ -367,6 +367,8 @@ window.PaginaPDV = (function () {
           sel.innerHTML = '<option value="">— sem cliente —</option>' +
             cls.map((c) => `<option value="${c.id}">${UI.escapar(c.nome)}${Number(c.saldo_devedor) > 0 ? ' (deve ' + UI.moeda(c.saldo_devedor) + ')' : ''}</option>`).join('');
           if (origemOS && origemOS.cliente_id) sel.value = String(origemOS.cliente_id);
+          // So depois de carregar, para a dica de "nenhum cliente" nao piscar enquanto a lista vem.
+          CadastroRapido.ligar(sel, 'cliente');
         }).catch(() => {});
 
         const recalc = () => {

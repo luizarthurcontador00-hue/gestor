@@ -646,6 +646,10 @@ window.PaginaAtendimento = (function () {
           <div class="campo col-2"><label>Observações</label><textarea id="ah-obs"></textarea></div>
         </div>`,
       textoConfirmar: 'Agendar',
+      aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#ah-prof'), 'profissional', { aoCriar: (r) => responsaveis.push(r) });
+        CadastroRapido.ligar(el.querySelector('#ah-serv'), 'servico', { aoCriar: (r) => servicosAgenda.push(r) });
+      },
       aoConfirmar: async (el) => {
         const dados = {
           data: el.querySelector('#ah-data').value,

@@ -112,7 +112,13 @@ window.PaginaServicos = (function () {
             <span class="dica">6 dígitos: item + subitem da lista de serviços (LC 116/2003) + desdobro nacional. Consulte o Anexo B da NFS-e Nacional ou seu contador.</span></div>
         </form>`,
       textoConfirmar: 'Salvar',
-      aoAbrir: (el) => { preencherCategorias(el.querySelector('#sv-fp-cat'), s.categoria_id); },
+      aoAbrir: (el) => {
+        preencherCategorias(el.querySelector('#sv-fp-cat'), s.categoria_id);
+        CadastroRapido.ligar(el.querySelector('#sv-fp-cat'), 'categoria', {
+          irmaos: [document.getElementById('sv-categoria')].filter(Boolean),
+          aoCriar: (r) => categorias.push(r),
+        });
+      },
       aoConfirmar: async (el) => {
         const form = el.querySelector('#form-servico');
         if (!form.nome.value.trim()) { UI.erro('Informe o nome do serviço.'); return false; }

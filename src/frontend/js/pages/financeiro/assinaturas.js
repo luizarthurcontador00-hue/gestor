@@ -101,6 +101,14 @@ window.FinanceiroAssinaturas = (function () {
         <div class="campo mt-16"><label>Observação</label><input id="as-obs" value="${UI.escapar(a && a.observacao ? a.observacao : '')}" /></div>
         <div class="dica mt-16">Todo mês, no dia informado (ajustado se o mês não tiver esse dia), uma conta a receber é criada automaticamente para ${S.ehInstituto() ? 'o mantenedor' : S.ehProfessor() ? 'o aluno' : 'o cliente'}, dentro do período de vigência.</div>`,
       textoConfirmar: 'Salvar',
+      aoAbrir: (el) => {
+        if (ehEdicao) return;
+        // No instituto quem paga a contribuicao mensal e' o mantenedor.
+        CadastroRapido.ligar(el.querySelector('#as-cliente'), 'cliente', {
+          rotulo: S.rMantenedor(), natureza: S.ehInstituto() ? 'mantenedor' : undefined,
+          aoCriar: (r) => S.state.clientes.push(r),
+        });
+      },
       aoConfirmar: async (el) => {
         const dados = {
           cliente_id: el.querySelector('#as-cliente').value || null,

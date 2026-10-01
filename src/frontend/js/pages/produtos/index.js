@@ -338,6 +338,11 @@ window.PaginaProdutos = (function () {
         const selF = el.querySelector('#fp-fornecedor');
         selF.innerHTML = '<option value="">Sem fornecedor</option>' +
           fornecedores.map((f) => `<option value="${f.id}" ${String(p.fornecedor_id) === String(f.id) ? 'selected' : ''}>${UI.escapar(f.nome)}</option>`).join('');
+        CadastroRapido.ligar(el.querySelector('#fp-categoria'), 'categoria', {
+          irmaos: [document.getElementById('pf-categoria')].filter(Boolean),
+          aoCriar: (r) => categorias.push(r),
+        });
+        CadastroRapido.ligar(selF, 'fornecedor', { aoCriar: (r) => fornecedores.push(r) });
         // ---------------------------- Galeria de fotos ----------------------------
         const galeriaEl = el.querySelector('#fp-galeria');
         function renderGaleria() {

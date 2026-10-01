@@ -161,6 +161,10 @@ window.SecoesArrecadacao = (function () {
             <textarea id="ofd-obs" rows="2">${ed ? UI.escapar(oferta.observacao || '') : ''}</textarea></div>
         </div>`,
       aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('#ofd-conta'), 'conta', {
+          aoCriar: (r) => contasFin.push(r),
+          opcao: (r) => ({ texto: `${r.nome} — ${UI.moeda(r.saldo_inicial)}`, data: {} }),
+        });
         const busca = el.querySelector('#ofd-busca');
         let timer = null;
         busca.addEventListener('input', () => {

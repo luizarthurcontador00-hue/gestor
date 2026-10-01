@@ -155,6 +155,8 @@ window.PaginaOrdens = (function () {
       titulo: ehEdicao ? `${rotulo(tipo)} #${o.numero}` : (isOS ? 'Nova ordem de serviço' : 'Novo orçamento'),
       tamanho: 'modal--grande', corpoHTML: corpo, textoConfirmar: 'Salvar',
       aoAbrir: (el) => {
+        CadastroRapido.ligar(el.querySelector('[name="cliente_id"]'), 'cliente', { aoCriar: (r) => clientes.push(r) });
+        CadastroRapido.ligar(el.querySelector('[name="profissional_id"]'), 'profissional', { aoCriar: (r) => profissionais.push(r) });
         function renderItens() {
           const tb = el.querySelector('#ord-itens');
           if (!itensForm.length) { tb.innerHTML = '<tr><td colspan="5" class="muted">Nenhum item. Busque um produto/serviço ou adicione um item livre.</td></tr>'; }

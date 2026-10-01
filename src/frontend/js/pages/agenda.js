@@ -419,6 +419,9 @@ window.PaginaAgenda = (function () {
           const tel = el.querySelector('#ag-tel');
           if (opt && opt.dataset.tel && !tel.value) tel.value = opt.dataset.tel;
         });
+        CadastroRapido.ligar(el.querySelector('[name="profissional_id"]'), 'profissional', { aoCriar: (r) => profissionais.push(r) });
+        CadastroRapido.ligar(serv, 'servico', { aoCriar: (r) => servicos.push(r) });
+        CadastroRapido.ligar(cli, 'cliente', { aoCriar: (r) => clientes.push(r) });
       },
       aoConfirmar: async (el) => {
         const dados = Object.fromEntries(new FormData(el.querySelector('#form-ag')).entries());

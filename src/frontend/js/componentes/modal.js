@@ -9,6 +9,13 @@
  * Retorna uma funcao fechar().
  */
 window.Modal = (function () {
+  // Modais podem se empilhar (ex.: cadastro rapido sobre um formulario): o Esc
+  // fecha so' o de cima, o ultimo overlay no DOM (mesmo z-index, vence a ordem).
+  function ehTopo(overlay) {
+    const todos = document.querySelectorAll('.modal-overlay');
+    return todos[todos.length - 1] === overlay;
+  }
+
   function abrir(opcoes) {
     const {
       titulo = '',
@@ -41,7 +48,7 @@ window.Modal = (function () {
     }
 
     function onKey(e) {
-      if (e.key === 'Escape') fechar();
+      if (e.key === 'Escape' && ehTopo(overlay)) fechar();
     }
 
     overlay.addEventListener('click', (e) => {
@@ -100,7 +107,7 @@ window.Modal = (function () {
         document.removeEventListener('keydown', onKey);
         responder(valor);
       }
-      function onKey(e) { if (e.key === 'Escape') fechar(false); }
+      function onKey(e) { if (e.key === 'Escape' && ehTopo(overlay)) fechar(false); }
 
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay || e.target.closest('[data-cancelar]')) fechar(false);
