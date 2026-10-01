@@ -101,13 +101,21 @@ function excluirProfissional(id) {
 
 // ------------------------------ Agendamentos ------------------------------
 
-function listar({ data, inicio, fim, profissional_id, status } = {}) {
+function listar({ data, inicio, fim, profissional_id, status, com_origem } = {}) {
   const db = getDb();
   const where = [];
   const params = {};
   if (data) { where.push('a.data = @data'); params.data = data; }
-  if (inicio) { where.push('date(a.data) >= date(@inicio)'); params.inicio = inicio; }
-  if (fim) { where.push('date(a.data) <= date(@fim)'); params.fim = fim; }
+  if (com_origem && inicio && fim) {
+    // Grade semanal: traz tambem a aula que SAIU do periodo por remarcacao,
+    // para mostrar o "foi para..." no horario original.
+    where.push(`((date(a.data) BETWEEN date(@inicio) AND date(@fim))
+      OR date(a.remarcado_de_data) BETWEEN date(@inicio) AND date(@fim))`);
+    params.inicio = inicio; params.fim = fim;
+  } else {
+    if (inicio) { where.push('date(a.data) >= date(@inicio)'); params.inicio = inicio; }
+    if (fim) { where.push('date(a.data) <= date(@fim)'); params.fim = fim; }
+  }
   if (profissional_id) { where.push('a.profissional_id = @prof'); params.prof = Number(profissional_id); }
   if (status) { where.push('a.status = @status'); params.status = status; }
   // Turma cancelada nunca deveria ter aula na agenda de verdade -- mas se
@@ -239,6 +247,108 @@ function excluir(id) {
   return { ok: true };
 }
 
+const REMARCADO_POR = ['aluno', 'professor', 'feriado'];
+
+function minutosDe(hora) {
+  const [h, m] = String(hora).split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** Soma dias a uma data 'YYYY-MM-DD' (em UTC, para nao sofrer com fuso/horario de verao). */
+function somarDias(iso, dias) {
+  const [a, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+}
+
+function diasEntre(deIso, ateIso) {
+  const t = (iso) => { const [a, m, d] = iso.split('-').map(Number); return Date.UTC(a, m - 1, d); };
+  return Math.round((t(ateIso) - t(deIso)) / 86400000);
+}
+
+/** Ha outra aula do mesmo profissional sobrepondo o horario? (aula sem hora_fim conta como 1h.) */
+function temConflito(db, { id, data, hora_inicio, hora_fim, profissional_id }) {
+  const ini = minutosDe(hora_inicio);
+  const fim = hora_fim ? minutosDe(hora_fim) : ini + 60;
+  const outras = db.prepare(`
+    SELECT hora_inicio, hora_fim FROM agendamentos
+    WHERE id != ? AND data = ? AND status != 'cancelado' AND suspensa = 0 AND profissional_id IS ?
+  `).all(id, data, profissional_id || null);
+  return outras.some((o) => {
+    const oi = minutosDe(o.hora_inicio);
+    const of = o.hora_fim ? minutosDe(o.hora_fim) : oi + 60;
+    return oi < fim && of > ini;
+  });
+}
+
+/**
+ * Remarca uma aula para outra data/horario, guardando de onde ela veio e quem
+ * pediu. Com escopo 'proximas' e a aula vindo de uma aula fixa, a aula fixa
+ * inteira passa a cair no novo dia/horario. Conflito de horario nao bloqueia:
+ * volta em `conflito` para o frontend avisar.
+ */
+function remarcar(id, { data, hora_inicio, hora_fim, por, escopo } = {}) {
+  const db = getDb();
+  const a = obter(id);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data || '')) throw new AppError('Informe a nova data.');
+  if (!/^\d{2}:\d{2}$/.test(hora_inicio || '')) throw new AppError('Informe o novo horario.');
+  if (!REMARCADO_POR.includes(por)) throw new AppError('Informe quem desmarcou a aula.');
+  if (a.venda_id) throw new AppError('Este agendamento ja foi faturado.');
+  if (a.status === 'atendido' || a.status === 'cancelado') {
+    throw new AppError('Aula ja atendida ou cancelada nao pode ser remarcada.');
+  }
+  if (data === a.data && hora_inicio === a.hora_inicio) throw new AppError('Escolha uma data ou horario diferente do atual.');
+
+  let novoFim = hora_fim || null;
+  if (novoFim && minutosDe(novoFim) <= minutosDe(hora_inicio)) throw new AppError('O horario final deve ser depois do inicial.');
+  if (!novoFim && a.hora_fim) {
+    const dur = minutosDe(a.hora_fim) - minutosDe(a.hora_inicio);
+    if (dur > 0) novoFim = somarMinutos(hora_inicio, dur);
+  }
+
+  const conflito = temConflito(db, { id: a.id, data, hora_inicio, hora_fim: novoFim, profissional_id: a.profissional_id });
+  const dataOriginal = a.data_original || a.data;
+  const comRecorrencia = escopo === 'proximas' && !!a.aula_recorrente_id
+    && !!db.prepare('SELECT 1 FROM aulas_recorrentes WHERE id = ?').get(a.aula_recorrente_id);
+
+  const reagendadas = [];
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE agendamentos SET data=?, hora_inicio=?, hora_fim=?, remarcado_de_data=?, remarcado_de_hora=?,
+        remarcado_por=?, data_original=? WHERE id=?
+    `).run(data, hora_inicio, novoFim, a.data, a.hora_inicio, por, a.aula_recorrente_id ? dataOriginal : a.data_original, id);
+    if (!comRecorrencia) return;
+
+    // A aula fixa passa a valer "desta aula para frente": mexer na data_inicio
+    // evita que o gerador crie ocorrencias no novo dia da semana antes desta data.
+    const rec = db.prepare('SELECT data_inicio FROM aulas_recorrentes WHERE id = ?').get(a.aula_recorrente_id);
+    const diaSemana = new Date(data + 'T00:00:00Z').getUTCDay();
+    db.prepare('UPDATE aulas_recorrentes SET dia_semana=?, hora_inicio=?, hora_fim=?, data_inicio=? WHERE id=?')
+      .run(diaSemana, hora_inicio, novoFim, rec.data_inicio > data ? rec.data_inicio : data, a.aula_recorrente_id);
+
+    // Cada ocorrencia futura anda os mesmos dias que esta andou em relacao ao
+    // dia em que a aula fixa a gerou. Ficam de fora as ja remarcadas a mao,
+    // confirmadas, suspensas ou faturadas.
+    const deslocamento = diasEntre(dataOriginal, data);
+    const futuras = db.prepare(`
+      SELECT id, data, data_original FROM agendamentos
+      WHERE aula_recorrente_id = ? AND id != ? AND status = 'agendado' AND venda_id IS NULL AND suspensa = 0
+        AND remarcado_de_data IS NULL AND data >= ? AND COALESCE(data_original, data) > ?
+    `).all(a.aula_recorrente_id, id, hoje(), dataOriginal);
+    const mover = db.prepare('UPDATE agendamentos SET data=?, hora_inicio=?, hora_fim=?, data_original=? WHERE id=?');
+    futuras.forEach((f) => {
+      mover.run(somarDias(f.data, deslocamento), hora_inicio, novoFim, f.data_original || f.data, f.id);
+      reagendadas.push(f.id);
+    });
+  })();
+
+  // eslint-disable-next-line global-require
+  const google = require('./googleAgendaService');
+  google.sincronizarAsync(id);
+  reagendadas.forEach((rid) => google.sincronizarAsync(rid));
+  if (comRecorrencia) gerarOcorrenciasPendentes();
+  return { ...obter(id), conflito, escopo_aplicado: comRecorrencia ? 'proximas' : 'esta' };
+}
+
 /**
  * Fatura o agendamento: gera a venda do servico (sem estoque) e marca como
  * atendido. Exige que o agendamento esteja vinculado a um servico do cadastro.
@@ -286,14 +396,15 @@ function resumoDia(data) {
 
 // ------------------------------ Aulas recorrentes ------------------------------
 
-function listarAulasRecorrentes() {
+function listarAulasRecorrentes({ aluno_id } = {}) {
   return getDb().prepare(`
     SELECT r.*, c.nome AS aluno_cadastro_nome, p.nome AS profissional_nome
     FROM aulas_recorrentes r
     LEFT JOIN clientes c ON c.id = r.aluno_id
     LEFT JOIN profissionais p ON p.id = r.profissional_id
+    ${aluno_id ? 'WHERE r.aluno_id = @aluno_id' : ''}
     ORDER BY (r.ativa = 0), r.dia_semana, r.hora_inicio
-  `).all();
+  `).all(aluno_id ? { aluno_id: Number(aluno_id) } : {});
 }
 
 function validarAulaRecorrente(dados) {
@@ -382,11 +493,15 @@ function gerarOcorrenciasPendentes() {
 
   let geradas = 0;
   const tx = db.transaction(() => {
-    const jaTem = db.prepare('SELECT 1 FROM agendamentos WHERE aula_recorrente_id = ? AND data = ?');
+    // data_original: uma aula remarcada ja nao esta no dia em que foi gerada,
+    // mas continua contando como "aquele dia ja tem ocorrencia".
+    const jaTem = db.prepare(
+      'SELECT 1 FROM agendamentos WHERE aula_recorrente_id = ? AND (data = ? OR COALESCE(data_original, data) = ?)'
+    );
     const inserir = db.prepare(`
       INSERT INTO agendamentos (data, hora_inicio, hora_fim, cliente_id, cliente_nome, telefone,
-        profissional_id, produto_id, servico_nome, valor, status, aula_recorrente_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'agendado', ?)
+        profissional_id, produto_id, servico_nome, valor, status, aula_recorrente_id, data_original)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'agendado', ?, ?)
     `);
     for (const a of aulas) {
       const inicioD = new Date(Math.max(hojeD.getTime(), new Date(a.data_inicio + 'T00:00:00').getTime()));
@@ -396,10 +511,10 @@ function gerarOcorrenciasPendentes() {
       for (let d = new Date(inicioD); d <= fimD; d.setDate(d.getDate() + 1)) {
         if (d.getDay() !== a.dia_semana) continue;
         const dataISO = d.toISOString().slice(0, 10);
-        if (jaTem.get(a.id, dataISO)) continue;
+        if (jaTem.get(a.id, dataISO, dataISO)) continue;
         inserir.run(
           dataISO, a.hora_inicio, a.hora_fim, a.aluno_id, a.aluno_nome, a.telefone,
-          a.profissional_id, a.produto_id, a.materia_nome, a.valor, a.id
+          a.profissional_id, a.produto_id, a.materia_nome, a.valor, a.id, dataISO
         );
         geradas++;
       }
@@ -430,6 +545,6 @@ module.exports = {
   STATUS,
   listarProfissionais, obterProfissional, criarProfissional, atualizarProfissional, excluirProfissional,
   atualizarFotoProfissional,
-  listar, obter, criar, atualizar, mudarStatus, excluir, faturar, resumoDia,
+  listar, obter, criar, atualizar, mudarStatus, remarcar, excluir, faturar, resumoDia,
   listarAulasRecorrentes, criarAulaRecorrente, atualizarAulaRecorrente, excluirAulaRecorrente, gerarOcorrenciasPendentes,
 };

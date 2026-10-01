@@ -23,7 +23,48 @@ window.FinanceiroShared = (function () {
   // No instituto a "mensalidade" e a contribuicao mensal do mantenedor, nao
   // uma cobranca de cliente — os mesmos rotulos da tela de Pessoas.
   const rMens = (m) => (ehInstituto() ? (m ? 'Contribuição mensal' : 'contribuição mensal') : (m ? 'Mensalidade' : 'mensalidade'));
-  const rMantenedor = (m) => (ehInstituto() ? (m ? 'Mantenedor' : 'mantenedor') : (m ? 'Cliente' : 'cliente'));
+  const ehProfessor = () => window.__ramoServico === 'professor';
+  const rMantenedor = (m) => {
+    if (ehInstituto()) return m ? 'Mantenedor' : 'mantenedor';
+    if (ehProfessor()) return m ? 'Aluno' : 'aluno';
+    return m ? 'Cliente' : 'cliente';
+  };
+
+  /** Data de hoje no fuso local (toISOString() viraria o dia a partir das 21h no Brasil). */
+  function hojeLocal() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  const dataBR = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+
+  /** Proximo vencimento (AAAA-MM-DD) de uma cobranca mensal no `dia`, a partir de `hojeISO` (inclusive); mes curto cai no ultimo dia. */
+  function proximoVencimento(dia, hojeISO) {
+    let a = Number(hojeISO.slice(0, 4));
+    let m = Number(hojeISO.slice(5, 7));
+    const monta = () => `${a}-${String(m).padStart(2, '0')}-${String(Math.min(Number(dia), new Date(a, m, 0).getDate())).padStart(2, '0')}`;
+    let v = monta();
+    if (v < hojeISO) { m += 1; if (m > 12) { m = 1; a += 1; } v = monta(); }
+    return v;
+  }
+
+  /** Mensagem padrao de cobranca por WhatsApp de uma conta a receber pendente. */
+  function mensagemCobranca(conta, hojeISO) {
+    const venc = String(conta.vencimento || '').slice(0, 10);
+    const quando = venc && venc < hojeISO ? 'que venceu em' : 'com vencimento em';
+    return `Olá, ${conta.cliente_nome || ''}! Passando para lembrar da mensalidade de ${UI.moeda(conta.valor)} ${quando} ${venc ? dataBR(venc) : '—'}.`;
+  }
+
+  function abrirWhatsApp(telefone, mensagem) {
+    const num = String(telefone || '').replace(/\D/g, '');
+    if (!num) return;
+    const completo = num.length <= 11 ? '55' + num : num; // DDI Brasil quando não informado
+    const url = `https://wa.me/${completo}?text=${encodeURIComponent(mensagem)}`;
+    try {
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (_) { window.open(url, '_blank'); }
+  }
 
   const FORMAS = { dinheiro: 'Dinheiro', cartao_credito: 'Cartão crédito', cartao_debito: 'Cartão débito', pix: 'PIX', prazo: 'A prazo', boleto: 'Boleto', transferencia: 'Transferência' };
   // Formas que alimentam um saldo (a prazo nao entra em conta na hora).
@@ -133,6 +174,7 @@ window.FinanceiroShared = (function () {
           <td style="text-align:right;white-space:nowrap">
             ${!quitada && c.status !== 'cancelada' ? `<button class="btn" data-baixar="${c.id}">${tipo === 'pagar' ? 'Pagar' : 'Receber'}</button>` : ''}
             ${tipo === 'receber' && c.status === 'pendente' ? `<button class="btn btn--secundario" data-cobranca="${c.id}">🧾 Cobrança</button>` : ''}
+            ${tipo === 'receber' && c.status === 'pendente' && ehProfessor() && c.cliente_telefone ? `<button class="btn btn--secundario" data-cobrar-wa="${c.id}">💬 Cobrar</button>` : ''}
             ${quitada && !ehVista ? `<button class="btn btn--secundario" data-reabrir="${c.id}">Reabrir</button>` : ''}
             ${ehVista ? '' : `<button class="btn btn--secundario" data-editar="${c.id}">Editar</button>`}
             ${ehVista ? '' : `<button class="btn btn--secundario" data-excluir="${c.id}">✕</button>`}
@@ -146,6 +188,10 @@ window.FinanceiroShared = (function () {
     const base = '/api/financeiro/contas-' + tipo;
     alvo.querySelectorAll('[data-baixar]').forEach((b) => b.addEventListener('click', () => baixar(tipo, b.dataset.baixar, recarregar)));
     alvo.querySelectorAll('[data-cobranca]').forEach((b) => b.addEventListener('click', () => imprimirCobranca(b.dataset.cobranca)));
+    alvo.querySelectorAll('[data-cobrar-wa]').forEach((b) => b.addEventListener('click', () => {
+      const c = contas.find((x) => x.id === Number(b.dataset.cobrarWa));
+      if (c) abrirWhatsApp(c.cliente_telefone, mensagemCobranca(c, hojeLocal()));
+    }));
     alvo.querySelectorAll('[data-reabrir]').forEach((b) => b.addEventListener('click', async () => {
       try { await API.post(`${base}/${b.dataset.reabrir}/reabrir`, {}); await recarregar(); carregarAlertas(); } catch (e) { UI.erro(e.message); }
     }));
@@ -241,7 +287,8 @@ window.FinanceiroShared = (function () {
 
   return {
     state,
-    ehInstituto, rMens, rMantenedor,
+    ehInstituto, ehProfessor, rMens, rMantenedor,
+    hojeLocal, dataBR, proximoVencimento, mensagemCobranca, abrirWhatsApp,
     FORMAS, FORMAS_SALDO, TIPOS_CONTA,
     mesCorrente, periodoMes, mesLabel, mudarMes,
     alvoConteudo, carregarAlertas, situacao, rotuloNovaConta,

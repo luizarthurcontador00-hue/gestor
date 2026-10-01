@@ -3,23 +3,53 @@
 /** Aba "A Receber": contas a receber (cobranças), com parcelamento e cobrança PIX. */
 window.FinanceiroReceber = (function () {
   const S = window.FinanceiroShared;
-  const filtroReceber = { mes: S.mesCorrente(), todos: false, status: '' };
+  const filtroReceber = { mes: S.mesCorrente(), todos: false, status: '', soAtrasadas: false };
 
   async function render() {
     const alvo = S.alvoConteudo();
     const statusOpcoes = ['<option value="">Todas</option>', '<option value="pendente">Pendentes</option>', '<option value="recebido">Recebidas</option>', '<option value="cancelada">Canceladas</option>']
       .map((o) => o.replace(`value="${filtroReceber.status}"`, `value="${filtroReceber.status}" selected`)).join('');
-    alvo.innerHTML = S.barraMes(filtroReceber, 'cr', statusOpcoes) + '<div class="card"><div id="cr-lista">Carregando…</div></div>';
+    alvo.innerHTML = (S.ehProfessor() ? '<div id="cr-atraso"></div>' : '') + S.barraMes(filtroReceber, 'cr', statusOpcoes) + '<div class="card"><div id="cr-lista">Carregando…</div></div>';
     S.ligarBarraMes(alvo, filtroReceber, 'cr', { rerender: render, recarregar: listar });
     alvo.querySelector('#cr-nova').addEventListener('click', () => form());
     await listar();
   }
 
+  /** Pendentes vencidas, de qualquer mes (o professor cobra o aluno ate pagar). */
+  async function buscarAtrasadas() {
+    const hoje = S.hojeLocal();
+    const pendentes = await API.get('/api/financeiro/contas-receber?status=pendente');
+    return pendentes.filter((c) => c.vencimento && String(c.vencimento).slice(0, 10) < hoje);
+  }
+
+  /** Professor: alerta "N mensalidades em atraso" com o filtro rapido "Só atrasadas". */
+  async function atualizarAtraso() {
+    const el = document.getElementById('cr-atraso');
+    if (!el) return [];
+    let atrasadas = [];
+    try { atrasadas = await buscarAtrasadas(); } catch (_) { /* o alerta e opcional */ }
+    if (!atrasadas.length) { filtroReceber.soAtrasadas = false; el.innerHTML = ''; return atrasadas; }
+    const total = atrasadas.reduce((s, c) => s + Number(c.valor), 0);
+    const rotulo = atrasadas.every((c) => c.assinatura_id) ? 'mensalidade(s)' : 'cobrança(s)';
+    el.innerHTML = `<div class="card mb-16" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span class="badge badge--erro">${atrasadas.length} ${rotulo} em atraso — ${UI.moeda(total)}</span>
+      <label class="flex gap-12" style="align-items:center;font-size:13px"><input type="checkbox" id="cr-so-atrasadas" ${filtroReceber.soAtrasadas ? 'checked' : ''}> Só atrasadas</label>
+    </div>`;
+    el.querySelector('#cr-so-atrasadas').addEventListener('change', (e) => { filtroReceber.soAtrasadas = e.target.checked; listar(); });
+    return atrasadas;
+  }
+
   async function listar() {
     const alvo = document.getElementById('cr-lista');
     let contas;
-    try { contas = await API.get('/api/financeiro/contas-receber?' + S.queryPeriodo(filtroReceber)); }
-    catch (e) { alvo.innerHTML = UI.escapar(e.message); return; }
+    try {
+      if (S.ehProfessor()) {
+        const atrasadas = await atualizarAtraso();
+        contas = filtroReceber.soAtrasadas ? atrasadas : await API.get('/api/financeiro/contas-receber?' + S.queryPeriodo(filtroReceber));
+      } else {
+        contas = await API.get('/api/financeiro/contas-receber?' + S.queryPeriodo(filtroReceber));
+      }
+    } catch (e) { alvo.innerHTML = UI.escapar(e.message); return; }
     if (!contas.length) { alvo.innerHTML = '<p class="muted">Nenhuma conta neste período.</p>'; return; }
     const receb = contas.filter((c) => c.status === 'recebido').reduce((s, c) => s + Number(c.valor), 0);
     const pend = contas.filter((c) => c.status === 'pendente').reduce((s, c) => s + Number(c.valor), 0);

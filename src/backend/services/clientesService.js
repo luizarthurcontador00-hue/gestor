@@ -16,11 +16,23 @@ function listar({ busca, incluir_inativos } = {}) {
     where.push('(c.nome LIKE @b OR c.cpf LIKE @b OR c.telefone LIKE @b)');
     params.b = `%${busca}%`;
   }
-  // Inclui o saldo devedor (contas a receber pendentes do cliente).
+  // Inclui o saldo devedor (contas a receber pendentes do cliente) e a
+  // mensalidade ativa mais recente (valor, dia e situacao da cobranca do mes).
+  const assinaturaAtiva = '(SELECT id FROM assinaturas WHERE cliente_id = c.id AND ativa = 1 ORDER BY id DESC LIMIT 1)';
   return db.prepare(`
     SELECT c.*,
       (SELECT COALESCE(SUM(valor),0) FROM contas_receber cr
-        WHERE cr.cliente_id = c.id AND cr.status = 'pendente') AS saldo_devedor
+        WHERE cr.cliente_id = c.id AND cr.status = 'pendente') AS saldo_devedor,
+      (SELECT valor FROM assinaturas WHERE id = ${assinaturaAtiva}) AS mensalidade_valor,
+      (SELECT dia_vencimento FROM assinaturas WHERE id = ${assinaturaAtiva}) AS mensalidade_dia,
+      (SELECT CASE WHEN cr.status = 'recebido' THEN 'recebido'
+                   WHEN date(cr.vencimento) < date('now','localtime') THEN 'atrasada'
+                   ELSE 'pendente' END
+         FROM contas_receber cr
+        WHERE cr.assinatura_id = ${assinaturaAtiva}
+          AND strftime('%Y-%m', cr.vencimento) = strftime('%Y-%m','now','localtime')
+          AND cr.status != 'cancelada'
+        ORDER BY cr.id DESC LIMIT 1) AS mensalidade_situacao
     FROM clientes c
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY c.nome COLLATE NOCASE
@@ -39,7 +51,7 @@ function obter(id) {
     WHERE cliente_id = ? ORDER BY id DESC LIMIT 50
   `).all(id);
   c.contas = db.prepare(`
-    SELECT id, descricao, valor, vencimento, status FROM contas_receber
+    SELECT id, descricao, valor, vencimento, status, assinatura_id FROM contas_receber
     WHERE cliente_id = ? ORDER BY (status!='pendente'), date(vencimento) LIMIT 100
   `).all(id);
   return c;

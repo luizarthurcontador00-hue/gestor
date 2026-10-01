@@ -442,7 +442,15 @@ function listarAssinaturas({ cliente_id } = {}) {
   const params = {};
   if (cliente_id) { where.push('a.cliente_id = @cliente_id'); params.cliente_id = cliente_id; }
   return db.prepare(`
-    SELECT a.*, c.nome AS cliente_nome
+    SELECT a.*, c.nome AS cliente_nome,
+      (SELECT CASE WHEN cr.status = 'recebido' THEN 'recebido'
+                   WHEN date(cr.vencimento) < date('now','localtime') THEN 'atrasada'
+                   ELSE 'pendente' END
+         FROM contas_receber cr
+        WHERE cr.assinatura_id = a.id
+          AND strftime('%Y-%m', cr.vencimento) = strftime('%Y-%m','now','localtime')
+          AND cr.status != 'cancelada'
+        ORDER BY cr.id DESC LIMIT 1) AS mes_situacao
     FROM assinaturas a JOIN clientes c ON c.id = a.cliente_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY (a.ativa = 0), c.nome
@@ -555,7 +563,7 @@ function listarReceber({ status, inicio, fim } = {}) {
   if (inicio) { where.push('date(cr.vencimento) >= date(@inicio)'); params.inicio = inicio; }
   if (fim) { where.push('date(cr.vencimento) <= date(@fim)'); params.fim = fim; }
   return db.prepare(`
-    SELECT cr.*, c.nome AS cliente_nome FROM contas_receber cr
+    SELECT cr.*, c.nome AS cliente_nome, c.telefone AS cliente_telefone FROM contas_receber cr
     LEFT JOIN clientes c ON c.id = cr.cliente_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY (cr.status!='pendente'), date(cr.vencimento)

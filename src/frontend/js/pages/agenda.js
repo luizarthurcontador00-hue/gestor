@@ -11,7 +11,8 @@
 window.PaginaAgenda = (function () {
   let dia = new Date().toISOString().slice(0, 10);
   let mesAtual = dia.slice(0, 7); // 'YYYY-MM', usado na visão de calendário
-  let vista = 'dia'; // 'dia' | 'mes' | 'recorrentes'
+  let vista = 'dia'; // 'semana' | 'dia' | 'mes' | 'recorrentes'
+  let vistaPadraoAplicada = false;
   let profissionais = [];
   let clientes = [];
   let servicos = [];
@@ -34,6 +35,9 @@ window.PaginaAgenda = (function () {
   // agendamento avulso: nao ha o que faturar aqui, como no instituto.
   const ehCreche = () => window.__ramoServico === 'creche';
   const crecheComTurma = () => ehCreche() && !!window.__crecheComTurma;
+  // Valor/faturamento por aula nao existe nesses ramos: instituto e creche nao
+  // vendem aula, e o professor cobra por mensalidade (Financeiro > Mensalidades).
+  const semValorPorAula = () => ehInstituto() || ehCreche() || ehProfessor();
   const rCliente = (m) => ((ehProfessor() || ehInstituto() || ehCreche()) ? (m ? 'Aluno' : 'aluno') : (m ? 'Cliente' : 'cliente'));
   const rServico = (m) => (ehInstituto() ? (m ? 'Atividade' : 'atividade') : ehProfessor() ? (m ? 'Matéria' : 'matéria') : (m ? 'Serviço' : 'serviço'));
   const rAula = (m) => ((ehProfessor() || ehInstituto() || ehCreche()) ? (m ? 'Aula' : 'aula') : (m ? 'Agendamento' : 'agendamento'));
@@ -77,6 +81,8 @@ window.PaginaAgenda = (function () {
   }
 
   async function render(container) {
+    // Professor particular enxerga a semana inteira de uma vez: e' a vista padrao.
+    if (!vistaPadraoAplicada) { vistaPadraoAplicada = true; if (ehProfessor()) vista = 'semana'; }
     [profissionais, clientes, servicos] = await Promise.all([
       API.get('/api/agenda/profissionais').catch(() => []),
       API.get('/api/clientes').catch(() => []),
@@ -87,6 +93,7 @@ window.PaginaAgenda = (function () {
 
     container.innerHTML = `
       <div class="subtabs">
+        ${ehProfessor() ? `<button class="subtab ${vista === 'semana' ? 'subtab--ativa' : ''}" data-vista="semana">🗓️ Semana</button>` : ''}
         <button class="subtab ${vista === 'dia' ? 'subtab--ativa' : ''}" data-vista="dia">📋 Dia</button>
         <button class="subtab ${vista === 'mes' ? 'subtab--ativa' : ''}" data-vista="mes">📆 Mês</button>
         ${(ehInstituto() || crecheComTurma()) ? '' : `<button class="subtab ${vista === 'recorrentes' ? 'subtab--ativa' : ''}" data-vista="recorrentes">🔁 ${rAula(true)} fixa</button>`}
@@ -97,9 +104,36 @@ window.PaginaAgenda = (function () {
       vista = b.dataset.vista; render(container);
     }));
 
-    if (vista === 'mes') await renderMes();
+    if (vista === 'semana' && ehProfessor()) await renderSemana();
+    else if (vista === 'mes') await renderMes();
     else if (vista === 'recorrentes') await renderRecorrentes();
     else await renderDia();
+  }
+
+  // ------------------------------ Visão: Semana (professor) ------------------------------
+  async function renderSemana() {
+    const alvo = document.getElementById('ag-corpo');
+    if (!alvo) return;
+    alvo.innerHTML = `
+      <div class="barra-ferramentas">
+        ${profissionais.length ? `<select id="ag-prof-filtro-sem">
+          <option value="">Todos os ${rProfs()}</option>
+          ${profissionais.map((p) => `<option value="${p.id}" ${String(filtroProf) === String(p.id) ? 'selected' : ''}>${UI.escapar(p.nome)}</option>`).join('')}
+        </select>` : ''}
+        <div class="cresce"></div>
+        <button class="btn btn--secundario" id="ag-equipe-sem">👥 Equipe</button>
+        <button class="btn" id="ag-novo-sem">+ Nova aula</button>
+      </div>
+      <div id="ag-semana"></div>`;
+    const filtro = alvo.querySelector('#ag-prof-filtro-sem');
+    if (filtro) filtro.addEventListener('change', (e) => { filtroProf = e.target.value; renderSemana(); });
+    alvo.querySelector('#ag-equipe-sem').addEventListener('click', gerenciarEquipe);
+    alvo.querySelector('#ag-novo-sem').addEventListener('click', () => abrirForm());
+    await AgendaSemana.render(alvo.querySelector('#ag-semana'), {
+      profissionalId: filtroProf,
+      aoAbrirAula: (a) => abrirDetalhe(a),
+      aoNovaAula: (data, hora) => abrirForm(null, { data, hora_inicio: hora }),
+    });
   }
 
   // ------------------------------ Visão: Dia ------------------------------
@@ -158,7 +192,7 @@ window.PaginaAgenda = (function () {
       <div class="card stat"><span class="stat__label">${rAula(true)}s do dia</span><span class="stat__value">${resumo.total}</span></div>
       <div class="card stat"><span class="stat__label">Pendentes</span><span class="stat__value" style="color:var(--alerta)">${resumo.pendentes}</span></div>
       <div class="card stat"><span class="stat__label">Atendidos</span><span class="stat__value" style="color:var(--sucesso)">${resumo.atendidos}</span></div>
-      <div class="card stat"><span class="stat__label">Previsto no dia</span><span class="stat__value">${UI.moeda(resumo.previsto)}</span></div>
+      ${ehProfessor() ? '' : `<div class="card stat"><span class="stat__label">Previsto no dia</span><span class="stat__value">${UI.moeda(resumo.previsto)}</span></div>`}
     </div>`;
 
     if (!itens.length) {
@@ -174,10 +208,10 @@ window.PaginaAgenda = (function () {
         return `<div class="agenda-item" style="border-left-color:${a.profissional_cor || 'var(--primaria)'}${a.suspensa ? ';opacity:.55' : ''}">
           <div class="agenda-item__hora">${UI.escapar(a.hora_inicio)}${a.hora_fim ? `<span class="dica">até ${UI.escapar(a.hora_fim)}</span>` : ''}</div>
           <div class="agenda-item__info">
-            <strong>${UI.escapar(nome)}</strong> ${badgeStatus(a)}${a.venda_id && !ehInstituto() && !ehCreche() ? ' <span class="badge badge--ok">faturado</span>' : ''}${a.aula_recorrente_id ? ` <span class="badge badge--muted" title="Gerado automaticamente de uma ${rAula()} fixa">🔁 fixa</span>` : ''}
+            <strong>${UI.escapar(nome)}</strong> ${badgeStatus(a)}${a.venda_id && !semValorPorAula() ? ' <span class="badge badge--ok">faturado</span>' : ''}${a.aula_recorrente_id ? ` <span class="badge badge--muted" title="Gerado automaticamente de uma ${rAula()} fixa">🔁 fixa</span>` : ''}
             <div class="dica">${a.suspensa ? `Suspensa${a.motivo_suspensao ? ' — ' + UI.escapar(a.motivo_suspensao) : ''}` : `${UI.escapar(a.servico_nome || rServico(true))}${a.profissional_nome ? ' · ' + UI.escapar(a.profissional_nome) : ''}${tel ? ' · ' + UI.escapar(tel) : ''}`}</div>
           </div>
-          <div class="agenda-item__valor">${a.suspensa || ehInstituto() || ehCreche() ? '' : UI.moeda(a.valor)}</div>
+          <div class="agenda-item__valor">${a.suspensa || semValorPorAula() ? '' : UI.moeda(a.valor)}</div>
           <div class="agenda-item__acoes">
             ${tel ? `<button class="btn btn--secundario" data-zap="${a.id}" title="Enviar confirmação por WhatsApp">💬</button>` : ''}
             <button class="btn btn--secundario" data-editar="${a.id}">Abrir</button>
@@ -307,12 +341,12 @@ window.PaginaAgenda = (function () {
     catch (e) { alvo.innerHTML = UI.escapar(e.message); return; }
     if (!aulasRecorrentes.length) { alvo.innerHTML = `<p class="muted">Nenhum${rAula() === 'aula' ? 'a' : ''} ${rAula()} fixa cadastrada.</p>`; return; }
     alvo.innerHTML = `<table class="tabela">
-      <thead><tr><th>${rCliente(true)}</th>${ehCreche() ? '' : `<th>${rServico(true)}</th>`}<th>Dia/Horário</th>${ehCreche() ? '' : '<th>Valor</th>'}<th>Status</th><th></th></tr></thead>
+      <thead><tr><th>${rCliente(true)}</th>${ehCreche() ? '' : `<th>${rServico(true)}</th>`}<th>Dia/Horário</th>${ehCreche() || ehProfessor() ? '' : '<th>Valor</th>'}<th>Status</th><th></th></tr></thead>
       <tbody>${aulasRecorrentes.map((r) => `<tr style="${r.ativa ? '' : 'opacity:.55'}">
         <td>${UI.escapar(r.aluno_cadastro_nome || r.aluno_nome || '—')}</td>
         ${ehCreche() ? '' : `<td>${UI.escapar(r.materia_nome || '—')}</td>`}
         <td>${DIAS_SEMANA[r.dia_semana]} · ${UI.escapar(r.hora_inicio)}${r.hora_fim ? ' às ' + UI.escapar(r.hora_fim) : ''}</td>
-        ${ehCreche() ? '' : `<td>${UI.moeda(r.valor)}</td>`}
+        ${ehCreche() || ehProfessor() ? '' : `<td>${UI.moeda(r.valor)}</td>`}
         <td>${r.ativa ? '<span class="badge badge--ok">Ativa</span>' : '<span class="badge badge--muted">Pausada</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn--secundario" data-rec-pausar="${r.id}" data-ativa="${r.ativa}">${r.ativa ? 'Pausar' : 'Reativar'}</button>
@@ -342,83 +376,13 @@ window.PaginaAgenda = (function () {
   }
 
   function formRecorrente(r) {
-    const ehEdicao = !!r;
-    Modal.abrir({
-      titulo: ehEdicao ? `Editar ${rAula()} fixa` : `Nov${rAula() === 'aula' ? 'a' : 'o'} ${rAula()} fixa`, tamanho: 'modal--grande',
-      corpoHTML: `
-        <div class="form-grid">
-          <div class="campo"><label>${rCliente(true)} (cadastrado)</label><select id="rec-aluno">
-            <option value="">— avulso —</option>${clientes.map((c) => `<option value="${c.id}" data-tel="${UI.escapar(c.telefone || '')}" ${r && String(r.aluno_id) === String(c.id) ? 'selected' : ''}>${UI.escapar(c.nome)}</option>`).join('')}
-          </select></div>
-          <div class="campo"><label>Ou nome do ${rCliente()}</label><input id="rec-aluno-nome" value="${UI.escapar(r ? r.aluno_nome || '' : '')}" placeholder="${rCliente(true)} sem cadastro" /></div>
-        </div>
-        ${ehCreche() ? '' : `<div class="form-grid mt-16">
-          <div class="campo"><label>${rServico(true)}</label><select id="rec-materia">
-            <option value="">— selecione —</option>${servicos.map((s) => `<option value="${s.id}" data-preco="${s.preco_venda}" ${r && String(r.produto_id) === String(s.id) ? 'selected' : ''}>${UI.escapar(s.nome)}</option>`).join('')}
-          </select></div>
-          <div class="campo"><label>Valor (R$)</label><input id="rec-valor" type="number" step="0.01" min="0" value="${r ? r.valor : ''}" /></div>
-        </div>`}
-        ${profissionais.length ? `<div class="campo mt-16"><label>Profissional</label><select id="rec-prof">
-          <option value="">—</option>${profissionais.map((p) => `<option value="${p.id}" ${r && String(r.profissional_id) === String(p.id) ? 'selected' : ''}>${UI.escapar(p.nome)}</option>`).join('')}
-        </select></div>` : ''}
-        <div class="form-grid mt-16">
-          <div class="campo"><label>Dia da semana *</label><select id="rec-dia">
-            ${DIAS_SEMANA.map((n, i) => `<option value="${i}" ${r ? (r.dia_semana === i ? 'selected' : '') : (i === 1 ? 'selected' : '')}>${n}</option>`).join('')}
-          </select></div>
-          <div class="campo"><label>Hora início *</label><input id="rec-hora-ini" type="time" value="${r ? r.hora_inicio : '15:00'}" required /></div>
-          <div class="campo"><label>Hora fim <span class="dica">(opcional)</span></label><input id="rec-hora-fim" type="time" value="${r && r.hora_fim ? r.hora_fim : ''}" /></div>
-        </div>
-        <div class="form-grid mt-16">
-          <div class="campo"><label>Começa em</label><input id="rec-inicio" type="date" value="${r ? r.data_inicio : new Date().toISOString().slice(0, 10)}" /></div>
-          <div class="campo"><label>Até <span class="dica">(opcional — deixe em branco para repetir sem data final)</span></label><input id="rec-fim" type="date" value="${r && r.data_fim ? r.data_fim : ''}" /></div>
-        </div>
-        <div class="campo mt-16"><label>Telefone (WhatsApp)</label><input id="rec-tel" value="${UI.escapar(r ? r.telefone || '' : '')}" placeholder="Ex.: 11999998888" /></div>
-        <div class="campo mt-16"><label>Observação</label><input id="rec-obs" value="${UI.escapar(r ? r.observacao || '' : '')}" /></div>
-        <div class="dica mt-16">O sistema gera automaticamente as próximas 8-9 semanas na agenda. Editar aqui não altera ocorrências já lançadas — só as futuras que ainda serão geradas.</div>`,
-      textoConfirmar: 'Salvar',
-      aoAbrir: (el) => {
-        const materia = el.querySelector('#rec-materia');
-        const valor = el.querySelector('#rec-valor');
-        if (materia && valor) materia.addEventListener('change', () => {
-          const opt = materia.selectedOptions[0];
-          if (opt && opt.dataset.preco && !valor.value) valor.value = opt.dataset.preco;
-        });
-        const aluno = el.querySelector('#rec-aluno');
-        aluno.addEventListener('change', () => {
-          const opt = aluno.selectedOptions[0];
-          const tel = el.querySelector('#rec-tel');
-          if (opt && opt.dataset.tel && !tel.value) tel.value = opt.dataset.tel;
-        });
-      },
-      aoConfirmar: async (el) => {
-        const dados = {
-          aluno_id: el.querySelector('#rec-aluno').value || null,
-          aluno_nome: el.querySelector('#rec-aluno-nome').value,
-          produto_id: el.querySelector('#rec-materia') ? el.querySelector('#rec-materia').value || null : null,
-          valor: el.querySelector('#rec-valor') ? el.querySelector('#rec-valor').value : 0,
-          profissional_id: el.querySelector('#rec-prof') ? el.querySelector('#rec-prof').value || null : null,
-          dia_semana: el.querySelector('#rec-dia').value,
-          hora_inicio: el.querySelector('#rec-hora-ini').value,
-          hora_fim: el.querySelector('#rec-hora-fim').value || null,
-          data_inicio: el.querySelector('#rec-inicio').value || null,
-          data_fim: el.querySelector('#rec-fim').value || null,
-          telefone: el.querySelector('#rec-tel').value,
-          observacao: el.querySelector('#rec-obs').value,
-        };
-        try {
-          if (ehEdicao) await API.put(`/api/agenda/aulas-recorrentes/${r.id}`, dados);
-          else await API.post('/api/agenda/aulas-recorrentes', dados);
-          UI.sucesso(ehEdicao ? `${rAula(true)} fixa atualizada.` : `${rAula(true)} fixa cadastrada — as próximas ocorrências já foram lançadas na agenda.`);
-          await listarRecorrentes();
-        } catch (e) { UI.erro(e.message); return false; }
-      },
-    });
+    AulaFixaForm.abrir({ aula: r, clientes, servicos, profissionais, aoSalvar: listarRecorrentes });
   }
 
   // --------------------------- Form de agendamento ---------------------------
-  function abrirForm(ag) {
+  function abrirForm(ag, previa) {
     const ehEdicao = !!ag;
-    const a = ag || {};
+    const a = ag || previa || {};
     Modal.abrir({
       titulo: ehEdicao ? `Editar ${rAula()}` : `Nov${rAula() === 'aula' ? 'a' : 'o'} ${rAula()}`, tamanho: 'modal--grande',
       corpoHTML: `
@@ -432,8 +396,8 @@ window.PaginaAgenda = (function () {
           ${(ehInstituto() || ehCreche()) ? '' : `
           <div class="campo"><label>${rServico(true)}</label><select name="produto_id" id="ag-serv">
             <option value="">— selecione —</option>${servicos.map((s) => `<option value="${s.id}" data-preco="${s.preco_venda}" ${String(a.produto_id) === String(s.id) ? 'selected' : ''}>${UI.escapar(s.nome)}</option>`).join('')}
-          </select><span class="dica">Necessário para faturar o atendimento.</span></div>
-          <div class="campo"><label>Valor (R$)</label><input name="valor" id="ag-valor" type="number" step="0.01" min="0" value="${a.valor != null ? a.valor : ''}" /></div>`}
+          </select>${ehProfessor() ? '' : '<span class="dica">Necessário para faturar o atendimento.</span>'}</div>
+          ${ehProfessor() ? '' : `<div class="campo"><label>Valor (R$)</label><input name="valor" id="ag-valor" type="number" step="0.01" min="0" value="${a.valor != null ? a.valor : ''}" /></div>`}`}
           <div class="campo"><label>${rCliente(true)} (cadastrado)</label><select name="cliente_id" id="ag-cli">
             <option value="">— avulso —</option>${clientes.map((c) => `<option value="${c.id}" data-tel="${UI.escapar(c.telefone || '')}" ${String(a.cliente_id) === String(c.id) ? 'selected' : ''}>${UI.escapar(c.nome)}</option>`).join('')}
           </select></div>
@@ -462,7 +426,7 @@ window.PaginaAgenda = (function () {
           if (ehEdicao) await API.put(`/api/agenda/${a.id}`, dados);
           else await API.post('/api/agenda', dados);
           UI.sucesso(ehEdicao ? `${rAula(true)} atualizad${ehProfessor() ? 'a' : 'o'}.` : `${rAula(true)} criad${ehProfessor() ? 'a' : 'o'}.`);
-          if (dados.data) { dia = dados.data; mesAtual = dados.data.slice(0, 7); }
+          if (dados.data) { dia = dados.data; mesAtual = dados.data.slice(0, 7); if (ehProfessor()) AgendaSemana.irPara(dados.data); }
           await render(document.getElementById('view'));
         } catch (e) { UI.erro(e.message); return false; }
       },
@@ -477,14 +441,15 @@ window.PaginaAgenda = (function () {
       titulo: `${a.hora_inicio} — ${nome}`, tamanho: 'modal--pequeno', mostrarConfirmar: false,
       corpoHTML: `
         <table class="tabela">
-          <tr><th>Status</th><td>${badgeStatus(a)}${a.venda_id && !ehInstituto() && !ehCreche() ? ' <span class="badge badge--ok">faturado (venda #' + a.venda_id + ')</span>' : ''}${a.aula_recorrente_id ? ` <span class="badge badge--muted">🔁 ${rAula()} fixa</span>` : ''}</td></tr>
+          <tr><th>Status</th><td>${badgeStatus(a)}${a.venda_id && !semValorPorAula() ? ' <span class="badge badge--ok">faturado (venda #' + a.venda_id + ')</span>' : ''}${a.aula_recorrente_id ? ` <span class="badge badge--muted">🔁 ${rAula()} fixa</span>` : ''}</td></tr>
           ${a.suspensa ? `<tr><th>Motivo</th><td>${UI.escapar(a.motivo_suspensao || '—')}</td></tr>` : ''}
           <tr><th>Data</th><td>${diaLabel(a.data)}</td></tr>
           <tr><th>Horário</th><td>${UI.escapar(a.hora_inicio)}${a.hora_fim ? ' às ' + UI.escapar(a.hora_fim) : ''}</td></tr>
+          ${ehProfessor() && a.remarcado_de_data ? `<tr><th>Remarcada</th><td>era ${diaLabel(a.remarcado_de_data)} às ${UI.escapar(a.remarcado_de_hora || '')}${a.remarcado_por ? ' · pedido ' + { aluno: 'do aluno', professor: 'do professor', feriado: 'por feriado' }[a.remarcado_por] : ''}</td></tr>` : ''}
           ${(ehInstituto() || ehCreche()) ? '' : `<tr><th>${rServico(true)}</th><td>${UI.escapar(a.servico_nome || '—')}</td></tr>`}
           <tr><th>${ehInstituto() ? 'Instrutor' : 'Profissional'}</th><td>${UI.escapar(a.profissional_nome || '—')}</td></tr>
           <tr><th>Telefone</th><td>${UI.escapar(tel || '—')}</td></tr>
-          ${(ehInstituto() || ehCreche()) ? '' : `<tr><th>Valor</th><td><strong>${UI.moeda(a.valor)}</strong></td></tr>`}
+          ${semValorPorAula() ? '' : `<tr><th>Valor</th><td><strong>${UI.moeda(a.valor)}</strong></td></tr>`}
           ${a.observacao ? `<tr><th>Obs.</th><td>${UI.escapar(a.observacao)}</td></tr>` : ''}
         </table>
         ${a.suspensa
@@ -502,9 +467,10 @@ window.PaginaAgenda = (function () {
             ${!a.suspensa && !ehInstituto() && !crecheComTurma() ? `<button class="btn btn--secundario" id="d-status" ${a.venda_id ? 'disabled' : ''}>Atualizar status</button>` : ''}
             ${tel ? '<button class="btn btn--secundario" id="d-zap">💬 WhatsApp</button>' : ''}
             <div class="cresce"></div>
+            ${ehProfessor() && AgendaSemana.remarcavel(a) ? '<button class="btn btn--secundario" id="d-remarcar">↻ Remarcar</button>' : ''}
             ${!a.venda_id ? '<button class="btn btn--secundario" id="d-editar">Editar</button>' : ''}
             ${!a.venda_id ? '<button class="btn btn--perigo" id="d-excluir">Excluir</button>' : ''}
-            ${!a.venda_id && !ehInstituto() && !ehCreche() ? '<button class="btn" id="d-faturar">💲 Faturar</button>' : ''}
+            ${!a.venda_id && !semValorPorAula() ? '<button class="btn" id="d-faturar">💲 Faturar</button>' : ''}
           </div>`;
         const btnStatus = foot.querySelector('#d-status');
         if (btnStatus) btnStatus.addEventListener('click', async () => {
@@ -513,6 +479,8 @@ window.PaginaAgenda = (function () {
         });
         const zap = foot.querySelector('#d-zap');
         if (zap) zap.addEventListener('click', () => enviarWhatsApp(a));
+        const rem = foot.querySelector('#d-remarcar');
+        if (rem) rem.addEventListener('click', () => { el.remove(); AgendaSemana.remarcar(a, { aoConcluir: atualizarVistaAtual }); });
         const ed = foot.querySelector('#d-editar');
         if (ed) ed.addEventListener('click', () => { el.remove(); abrirForm(a); });
         const ex = foot.querySelector('#d-excluir');
@@ -551,9 +519,10 @@ window.PaginaAgenda = (function () {
     });
   }
 
-  /** Atualiza a lista do dia ou o calendário do mês, conforme a visão atual. */
+  /** Atualiza a semana, a lista do dia ou o calendário do mês, conforme a visão atual. */
   async function atualizarVistaAtual() {
-    if (vista === 'mes') await carregarCalendario();
+    if (vista === 'semana' && ehProfessor()) await renderSemana();
+    else if (vista === 'mes') await carregarCalendario();
     else await listar();
   }
 

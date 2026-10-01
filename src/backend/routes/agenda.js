@@ -19,7 +19,7 @@ router.post('/profissionais/:id/foto', uploadFotoPessoa.single('foto'), asyncHan
 }));
 
 // Aulas recorrentes (aula fixa semanal)
-router.get('/aulas-recorrentes', asyncHandler((req, res) => res.json(ag.listarAulasRecorrentes())));
+router.get('/aulas-recorrentes', asyncHandler((req, res) => res.json(ag.listarAulasRecorrentes(req.query))));
 router.post('/aulas-recorrentes', asyncHandler((req, res) => res.status(201).json(ag.criarAulaRecorrente(req.body || {}))));
 router.put('/aulas-recorrentes/:id', asyncHandler((req, res) => res.json(ag.atualizarAulaRecorrente(req.params.id, req.body || {}))));
 router.delete('/aulas-recorrentes/:id', asyncHandler((req, res) => res.json(ag.excluirAulaRecorrente(req.params.id))));
@@ -32,6 +32,7 @@ router.get('/:id', asyncHandler((req, res) => res.json(ag.obter(req.params.id)))
 router.post('/', asyncHandler((req, res) => res.status(201).json(ag.criar(req.body || {}))));
 router.put('/:id', asyncHandler((req, res) => res.json(ag.atualizar(req.params.id, req.body || {}))));
 router.post('/:id/status', asyncHandler((req, res) => res.json(ag.mudarStatus(req.params.id, req.body && req.body.status))));
+router.post('/:id/remarcar', asyncHandler((req, res) => res.json(ag.remarcar(req.params.id, req.body || {}))));
 router.post('/:id/faturar', asyncHandler((req, res) => res.json(ag.faturar(req.params.id, req.body || {}))));
 router.delete('/:id', asyncHandler((req, res) => res.json(ag.excluir(req.params.id))));
 

@@ -70,12 +70,25 @@ window.PaginaInicio = (function () {
         </div>
       </div>
       <div id="central-itens"></div>
+      ${window.__ramoServico === 'professor' ? `<div class="card mt-16">
+        <h3 style="margin-top:0">🗓️ Aulas da semana</h3>
+        <div id="central-semana"></div>
+      </div>` : ''}
       <div class="card mt-16">
         <h3 style="margin-top:0">${window.__ramoServico === 'professor' ? '📊 Painel do professor' : 'Resumo rápido'}</h3>
         <div class="grid grid--cards" id="central-resumo"></div>
       </div>`;
 
-    await Promise.all([carregarCentral(container), carregarResumo()]);
+    await Promise.all([carregarCentral(container), carregarResumo(), carregarSemana(container)]);
+  }
+
+  async function carregarSemana(container) {
+    const alvo = container.querySelector('#central-semana');
+    if (!alvo || !window.AgendaSemana) return;
+    // As aulas fixas só viram aulas na agenda quando geradas; sem isto a semana
+    // apareceria vazia até alguém abrir a Agenda.
+    await API.post('/api/agenda/aulas-recorrentes/gerar-pendentes', {}).catch(() => {});
+    await AgendaSemana.render(alvo, { compacto: true });
   }
 
   async function carregarCentral(container) {

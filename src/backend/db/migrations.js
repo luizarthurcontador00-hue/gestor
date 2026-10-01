@@ -1792,6 +1792,22 @@ const migrations = [
       `);
     },
   },
+  {
+    version: 50,
+    name: 'agenda-remarcar-aula',
+    up(db) {
+      db.exec(`
+        -- Remarcar aula: guarda de onde ela veio (para a grade semanal mostrar
+        -- "foi p/ ..." no horario antigo) e quem pediu. data_original e' o dia
+        -- em que a aula fixa gerou esta ocorrencia; sem ela, o gerador de
+        -- ocorrencias recriaria a aula no dia antigo depois de remarcada.
+        ALTER TABLE agendamentos ADD COLUMN remarcado_de_data TEXT;
+        ALTER TABLE agendamentos ADD COLUMN remarcado_de_hora TEXT;
+        ALTER TABLE agendamentos ADD COLUMN remarcado_por TEXT; -- 'aluno' | 'professor' | 'feriado'
+        ALTER TABLE agendamentos ADD COLUMN data_original TEXT;
+      `);
+    },
+  },
 ];
 
 /**
